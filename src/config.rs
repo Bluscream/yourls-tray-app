@@ -90,6 +90,7 @@ pub fn load_config() -> Config {
     config
 }
 
+#[allow(dead_code)]
 pub fn save_config(config: &Config) {
     let path = get_config_path();
     if let Ok(content) = toml::to_string_pretty(config) {

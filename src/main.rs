@@ -4,7 +4,7 @@ mod config;
 
 use arboard::Clipboard;
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
-use config::{load_config, save_config};
+use config::load_config;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -318,7 +318,6 @@ fn main() {
 
     // Initialize Tray Icon
     let tray_icon = TrayIconBuilder::new()
-        .with_menu(Box::new(_menu.clone()))
         .with_tooltip("YOURLS Clipboard Shortener")
         .with_icon(create_icon(config.enabled))
         .build()
@@ -379,11 +378,7 @@ fn main() {
                     let checked = item_enabled.is_checked();
                     let mut s = state.lock().unwrap();
                     s.enabled = checked;
-                    s.needs_menu_rebuild = true;
-                    
-                    let mut cfg = load_config();
-                    cfg.enabled = checked;
-                    save_config(&cfg);
+                    let _ = tray_icon.set_icon(Some(create_icon(checked)));
                 } else if event.id == item_edit_config.id() {
                     let config_path = config::get_config_path();
                     let _ = std::process::Command::new("notepad.exe")
@@ -405,17 +400,22 @@ fn main() {
                 }
             }
 
-            // Drain Tray Icon Events (Left-click toggles state)
+            // Drain Tray Icon Events
             while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-                if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
-                    let mut s = state.lock().unwrap();
-                    s.enabled = !s.enabled;
-                    s.needs_menu_rebuild = true;
-                    let checked = s.enabled;
-                    
-                    let mut cfg = load_config();
-                    cfg.enabled = checked;
-                    save_config(&cfg);
+                match event {
+                    TrayIconEvent::Click { button: MouseButton::Left, .. } => {
+                        let mut s = state.lock().unwrap();
+                        s.enabled = !s.enabled;
+                        let checked = s.enabled;
+                        item_enabled.set_checked(checked);
+                        let _ = tray_icon.set_icon(Some(create_icon(checked)));
+                    }
+                    TrayIconEvent::Click { button: MouseButton::Right, .. } => {
+                        use tray_icon::menu::ContextMenu;
+                        let hwnd = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
+                        let _ = _menu.show_context_menu_for_hwnd(hwnd as isize, None);
+                    }
+                    _ => {}
                 }
             }
 
@@ -434,7 +434,6 @@ fn main() {
                 let (new_menu, new_enabled, new_edit, new_exit, new_ids) =
                     build_tray_menu(enabled, &history);
                 
-                let _ = tray_icon.set_menu(Some(Box::new(new_menu.clone())));
                 let _ = tray_icon.set_icon(Some(create_icon(enabled)));
 
                 _menu = new_menu;
