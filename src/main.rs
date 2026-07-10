@@ -326,33 +326,35 @@ fn main() {
     // Get current thread ID (main thread) so we can wake it up from the event listener thread
     let main_thread_id = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
 
-    // Spawn thread to listen to MenuEvent and TrayIconEvent channels, waking up the main thread's GetMessageW loop
-    thread::spawn(move || {
-        loop {
-            crossbeam_channel::select! {
-                recv(MenuEvent::receiver()) -> _ => {
-                    unsafe {
-                        windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
-                            main_thread_id,
-                            windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
-                            0,
-                            0,
-                        );
-                    }
-                }
-                recv(TrayIconEvent::receiver()) -> _ => {
-                    unsafe {
-                        windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
-                            main_thread_id,
-                            windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
-                            0,
-                            0,
-                        );
-                    }
-                }
-            }
+    // Create custom channels to safely forward menu and tray events to the main thread
+    let (tx_menu, rx_menu) = crossbeam_channel::unbounded();
+    let (tx_tray, rx_tray) = crossbeam_channel::unbounded();
+
+    let tx_menu_clone = tx_menu.clone();
+    MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+        let _ = tx_menu_clone.send(event);
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                main_thread_id,
+                windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
+                0,
+                0,
+            );
         }
-    });
+    }));
+
+    let tx_tray_clone = tx_tray.clone();
+    TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+        let _ = tx_tray_clone.send(event);
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                main_thread_id,
+                windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
+                0,
+                0,
+            );
+        }
+    }));
 
     // Spawn Clipboard Monitor thread
     let state_monitor = state.clone();
@@ -373,7 +375,7 @@ fn main() {
             windows_sys::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
 
             // Drain Menu Events
-            while let Ok(event) = MenuEvent::receiver().try_recv() {
+            while let Ok(event) = rx_menu.try_recv() {
                 if event.id == item_enabled.id() {
                     let checked = item_enabled.is_checked();
                     let mut s = state.lock().unwrap();
@@ -401,7 +403,7 @@ fn main() {
             }
 
             // Drain Tray Icon Events
-            while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+            while let Ok(event) = rx_tray.try_recv() {
                 match event {
                     TrayIconEvent::Click { button: MouseButton::Left, .. } => {
                         let mut s = state.lock().unwrap();
