@@ -1407,23 +1407,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "repos"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "clipboard-master",
- "crossbeam-channel",
- "serde",
- "serde_json",
- "toml",
- "tray-icon",
- "ureq",
- "url",
- "windows-sys 0.59.0",
- "winrt-notification",
-]
-
-[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2219,6 +2202,23 @@ dependencies = [
  "quote",
  "syn 2.0.118",
  "synstructure",
+]
+
+[[package]]
+name = "yourls-tray-app"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "clipboard-master",
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "toml",
+ "tray-icon",
+ "ureq",
+ "url",
+ "windows-sys 0.59.0",
+ "winrt-notification",
 ]
 
 [[package]]
