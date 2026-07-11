@@ -5,7 +5,10 @@ A lightweight Windows system tray application written in Rust that monitors your
 ## Features
 
 - **Automated Shortening**: Automatically detects absolute URLs copied to the clipboard and replaces them with shortened links.
-- **Double-Copy Bypass**: Quickly copy the same URL twice consecutively to bypass the shortener (useful when you want to copy the original long URL).
+- **Copy Bypasses**:
+  - **Double-Copy**: Copy the same URL twice consecutively to bypass shortening.
+  - **Shift Key**: Hold down the `Shift` key while copying a URL to temporarily bypass shortening.
+  - **Scroll Lock**: Activate `Scroll Lock` on your keyboard to pause all automatic shortening globally.
 - **System Tray Context Menu**:
   - Toggle the shortener on/off.
   - Access recent shortening history to copy previous short links.

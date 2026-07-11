@@ -15,6 +15,12 @@ use tray_icon::{
 use url::Url;
 use winrt_notification::Toast;
 
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn GetKeyState(nVirtKey: i32) -> i16;
+    fn GetAsyncKeyState(vKey: i32) -> i16;
+}
+
 fn log_debug(msg: &str) {
     let mut log_path = std::env::temp_dir();
     log_path.push("yourls-tray-app.log");
@@ -58,6 +64,15 @@ impl ClipboardHandler for ClipboardMonitor {
 
             // Check if it's a valid absolute URL
             if Url::parse(&text).is_err() {
+                return;
+            }
+
+            // Check if Shift key is pressed or Scroll Lock is active
+            let shift_pressed = unsafe { (GetAsyncKeyState(0x10) as u16 & 0x8000) != 0 };
+            let scroll_lock_active = unsafe { (GetKeyState(0x91) & 1) != 0 };
+
+            if shift_pressed || scroll_lock_active {
+                log_debug(&format!("Bypassing URL shortening. Shift pressed: {}, Scroll Lock active: {}", shift_pressed, scroll_lock_active));
                 return;
             }
 
