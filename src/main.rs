@@ -13,12 +13,24 @@ use tray_icon::{
     MouseButton, TrayIconBuilder, TrayIconEvent,
 };
 use url::Url;
-use winrt_notification::Toast;
+use notify_rust::Notification;
+use device_query::{DeviceQuery, DeviceState, Keycode};
 
+#[cfg(target_os = "windows")]
 #[link(name = "user32")]
 unsafe extern "system" {
     fn GetKeyState(nVirtKey: i32) -> i16;
-    fn GetAsyncKeyState(vKey: i32) -> i16;
+}
+
+fn is_scroll_lock_active() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        unsafe { (GetKeyState(0x91) & 1) != 0 }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
 }
 
 fn log_debug(msg: &str) {
@@ -71,8 +83,12 @@ impl ClipboardHandler for ClipboardMonitor {
             let config = load_config();
 
             // Check if Shift key is pressed or Scroll Lock is active (if enabled in config)
-            let shift_pressed = config.bypass_shift_key && unsafe { (GetAsyncKeyState(0x10) as u16 & 0x8000) != 0 };
-            let scroll_lock_active = config.bypass_scroll_lock && unsafe { (GetKeyState(0x91) & 1) != 0 };
+            let shift_pressed = config.bypass_shift_key && {
+                let device_state = DeviceState::new();
+                let keys = device_state.get_keys();
+                keys.contains(&Keycode::LShift) || keys.contains(&Keycode::RShift)
+            };
+            let scroll_lock_active = config.bypass_scroll_lock && is_scroll_lock_active();
 
             if shift_pressed || scroll_lock_active {
                 log_debug(&format!("Bypassing URL shortening. Shift pressed: {}, Scroll Lock active: {}", shift_pressed, scroll_lock_active));
@@ -183,12 +199,10 @@ impl ClipboardHandler for ClipboardMonitor {
                 log_debug("Failed to write shortened URL to clipboard.");
             }
 
-            // Show Toast Notification
-            let _ = Toast::new("YOURLS.ClipboardShortener")
-                .title("Clipboard Link Shortened")
-                .text1(&format!("Original: {}", text))
-                .text2(&format!("Shortened: {}", response))
-                .sound(Some(winrt_notification::Sound::Default))
+            // Show Notification
+            let _ = Notification::new()
+                .summary("Clipboard Link Shortened")
+                .body(&format!("Original: {}\nShortened: {}", text, response))
                 .show();
 
             // Fetch updated history and trigger menu rebuild
@@ -464,11 +478,9 @@ fn main() {
                     log_debug(&format!("Menu event: history item clicked (url = {}). Copying to clipboard.", short_url));
                     if let Ok(mut clipboard) = Clipboard::new() {
                         let _ = clipboard.set_text(short_url.clone());
-                        let _ = Toast::new("YOURLS.ClipboardShortener")
-                            .title("Copied from History")
-                            .text1("Short link copied to clipboard:")
-                            .text2(short_url)
-                            .sound(Some(winrt_notification::Sound::Default))
+                        let _ = Notification::new()
+                            .summary("Copied from History")
+                            .body(&format!("Short link copied to clipboard:\n{}", short_url))
                             .show();
                     }
                 }
