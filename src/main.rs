@@ -4,7 +4,7 @@ mod config;
 
 use arboard::Clipboard;
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
-use config::load_config;
+use config::{load_config, save_config};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -318,6 +318,7 @@ fn main() {
 
     // Initialize Tray Icon
     let tray_icon = TrayIconBuilder::new()
+        .with_menu(Box::new(_menu.clone()))
         .with_tooltip("YOURLS Clipboard Shortener")
         .with_icon(create_icon(config.enabled))
         .build()
@@ -326,35 +327,33 @@ fn main() {
     // Get current thread ID (main thread) so we can wake it up from the event listener thread
     let main_thread_id = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
 
-    // Create custom channels to safely forward menu and tray events to the main thread
-    let (tx_menu, rx_menu) = crossbeam_channel::unbounded();
-    let (tx_tray, rx_tray) = crossbeam_channel::unbounded();
-
-    let tx_menu_clone = tx_menu.clone();
-    MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
-        let _ = tx_menu_clone.send(event);
-        unsafe {
-            windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
-                main_thread_id,
-                windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
-                0,
-                0,
-            );
+    // Spawn thread to listen to MenuEvent and TrayIconEvent channels, waking up the main thread's GetMessageW loop
+    thread::spawn(move || {
+        loop {
+            crossbeam_channel::select! {
+                recv(MenuEvent::receiver()) -> _ => {
+                    unsafe {
+                        windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                            main_thread_id,
+                            windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
+                            0,
+                            0,
+                        );
+                    }
+                }
+                recv(TrayIconEvent::receiver()) -> _ => {
+                    unsafe {
+                        windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                            main_thread_id,
+                            windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
+                            0,
+                            0,
+                        );
+                    }
+                }
+            }
         }
-    }));
-
-    let tx_tray_clone = tx_tray.clone();
-    TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
-        let _ = tx_tray_clone.send(event);
-        unsafe {
-            windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
-                main_thread_id,
-                windows_sys::Win32::UI::WindowsAndMessaging::WM_USER,
-                0,
-                0,
-            );
-        }
-    }));
+    });
 
     // Spawn Clipboard Monitor thread
     let state_monitor = state.clone();
@@ -375,12 +374,16 @@ fn main() {
             windows_sys::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
 
             // Drain Menu Events
-            while let Ok(event) = rx_menu.try_recv() {
+            while let Ok(event) = MenuEvent::receiver().try_recv() {
                 if event.id == item_enabled.id() {
                     let checked = item_enabled.is_checked();
                     let mut s = state.lock().unwrap();
                     s.enabled = checked;
-                    let _ = tray_icon.set_icon(Some(create_icon(checked)));
+                    s.needs_menu_rebuild = true;
+                    
+                    let mut cfg = load_config();
+                    cfg.enabled = checked;
+                    save_config(&cfg);
                 } else if event.id == item_edit_config.id() {
                     let config_path = config::get_config_path();
                     let _ = std::process::Command::new("notepad.exe")
@@ -402,22 +405,17 @@ fn main() {
                 }
             }
 
-            // Drain Tray Icon Events
-            while let Ok(event) = rx_tray.try_recv() {
-                match event {
-                    TrayIconEvent::Click { button: MouseButton::Left, .. } => {
-                        let mut s = state.lock().unwrap();
-                        s.enabled = !s.enabled;
-                        let checked = s.enabled;
-                        item_enabled.set_checked(checked);
-                        let _ = tray_icon.set_icon(Some(create_icon(checked)));
-                    }
-                    TrayIconEvent::Click { button: MouseButton::Right, .. } => {
-                        use tray_icon::menu::ContextMenu;
-                        let hwnd = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
-                        let _ = _menu.show_context_menu_for_hwnd(hwnd as isize, None);
-                    }
-                    _ => {}
+            // Drain Tray Icon Events (Left-click toggles state)
+            while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+                if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
+                    let mut s = state.lock().unwrap();
+                    s.enabled = !s.enabled;
+                    s.needs_menu_rebuild = true;
+                    let checked = s.enabled;
+                    
+                    let mut cfg = load_config();
+                    cfg.enabled = checked;
+                    save_config(&cfg);
                 }
             }
 
@@ -436,6 +434,7 @@ fn main() {
                 let (new_menu, new_enabled, new_edit, new_exit, new_ids) =
                     build_tray_menu(enabled, &history);
                 
+                let _ = tray_icon.set_menu(Some(Box::new(new_menu.clone())));
                 let _ = tray_icon.set_icon(Some(create_icon(enabled)));
 
                 _menu = new_menu;
