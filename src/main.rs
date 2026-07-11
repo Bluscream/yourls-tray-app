@@ -369,8 +369,8 @@ fn build_tray_menu(
     std::collections::HashMap<MenuId, String>,
 ) {
     let menu = Menu::new();
-    let item_title = MenuItem::new("YOURLS Clipboard Shortener", false, None);
-    let item_enabled = CheckMenuItem::new("Enabled", true, enabled, None);
+    let item_title = MenuItem::new("YOURLS Shortener", false, None);
+    let item_enabled = CheckMenuItem::new("Monitor Clipboard", true, enabled, None);
     let item_edit_config = MenuItem::new("Edit Configuration", true, None);
     let item_exit = MenuItem::new("Exit", true, None);
 
