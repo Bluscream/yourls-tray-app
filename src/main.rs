@@ -66,6 +66,9 @@ struct AppState {
     last_attempted_long_url: Option<String>,
     history: Vec<(String, String)>,
     needs_menu_rebuild: bool,
+    bypass_double_copy: bool,
+    bypass_shift_key: bool,
+    bypass_scroll_lock: bool,
 }
 
 struct ClipboardMonitor {
@@ -97,16 +100,26 @@ impl ClipboardHandler for ClipboardMonitor {
                 return;
             }
 
-            // Reload configuration to ensure we use the latest settings
-            let config = load_config();
+            // Lock state to read history, enabled status, and bypass toggles
+            let (enabled, last_written, last_attempted, bypass_double_copy, bypass_shift_key, bypass_scroll_lock) = {
+                let s = state_clone.lock().unwrap();
+                (
+                    s.enabled,
+                    s.last_written_url.clone(),
+                    s.last_attempted_long_url.clone(),
+                    s.bypass_double_copy,
+                    s.bypass_shift_key,
+                    s.bypass_scroll_lock,
+                )
+            };
 
-            // Check if Shift key is pressed or Scroll Lock is active (if enabled in config)
-            let shift_pressed = config.bypass_shift_key && {
+            // Check if Shift key is pressed or Scroll Lock is active (if enabled)
+            let shift_pressed = bypass_shift_key && {
                 let device_state = DeviceState::new();
                 let keys = device_state.get_keys();
                 keys.contains(&Keycode::LShift) || keys.contains(&Keycode::RShift)
             };
-            let scroll_lock_active = config.bypass_scroll_lock && is_scroll_lock_active();
+            let scroll_lock_active = bypass_scroll_lock && is_scroll_lock_active();
 
             if shift_pressed || scroll_lock_active {
                 log_debug(&format!("Bypassing URL shortening. Shift pressed: {}, Scroll Lock active: {}", shift_pressed, scroll_lock_active));
@@ -115,11 +128,8 @@ impl ClipboardHandler for ClipboardMonitor {
 
             log_debug(&format!("Clipboard URL detected: {}", text));
 
-            // Lock state to read history and check if enabled
-            let (enabled, last_written, last_attempted) = {
-                let s = state_clone.lock().unwrap();
-                (s.enabled, s.last_written_url.clone(), s.last_attempted_long_url.clone())
-            };
+            // Reload configuration to ensure we use the latest settings
+            let config = load_config();
 
             if !enabled || config.api_url.trim().is_empty() || config.signature.trim().is_empty() {
                 log_debug("App is disabled or configuration (API URL / Signature) is incomplete.");
@@ -155,7 +165,7 @@ impl ClipboardHandler for ClipboardMonitor {
             }
 
             // 3. Bypass check: copy same URL twice consecutively to bypass
-            if config.bypass_double_copy {
+            if bypass_double_copy {
                 if let Some(ref last_att) = last_attempted {
                     if text == *last_att {
                         log_debug("URL copied twice consecutively. Bypassing shortening.");
@@ -345,11 +355,17 @@ fn create_icon(enabled: bool) -> tray_icon::Icon {
 fn build_tray_menu(
     enabled: bool,
     history: &[(String, String)],
+    bypass_double_copy: bool,
+    bypass_shift_key: bool,
+    bypass_scroll_lock: bool,
 ) -> (
     Menu,
     CheckMenuItem,
     MenuItem,
     MenuItem,
+    CheckMenuItem,
+    CheckMenuItem,
+    CheckMenuItem,
     std::collections::HashMap<MenuId, String>,
 ) {
     let menu = Menu::new();
@@ -357,6 +373,14 @@ fn build_tray_menu(
     let item_enabled = CheckMenuItem::new("Enabled", true, enabled, None);
     let item_edit_config = MenuItem::new("Edit Configuration", true, None);
     let item_exit = MenuItem::new("Exit", true, None);
+
+    let bypasses_submenu = Submenu::new("Bypass Methods", true);
+    let item_bypass_double_copy = CheckMenuItem::new("Double-Copy", true, bypass_double_copy, None);
+    let item_bypass_shift_key = CheckMenuItem::new("Shift Key", true, bypass_shift_key, None);
+    let item_bypass_scroll_lock = CheckMenuItem::new("Scroll Lock", true, bypass_scroll_lock, None);
+    let _ = bypasses_submenu.append(&item_bypass_double_copy);
+    let _ = bypasses_submenu.append(&item_bypass_shift_key);
+    let _ = bypasses_submenu.append(&item_bypass_scroll_lock);
 
     let mut history_ids = std::collections::HashMap::new();
     let history_submenu = Submenu::new("Recent Links", true);
@@ -383,13 +407,23 @@ fn build_tray_menu(
         &PredefinedMenuItem::separator(),
         &item_enabled,
         &item_edit_config,
+        &bypasses_submenu,
         &history_submenu,
         &PredefinedMenuItem::separator(),
         &item_exit,
     ])
     .unwrap();
 
-    (menu, item_enabled, item_edit_config, item_exit, history_ids)
+    (
+        menu,
+        item_enabled,
+        item_edit_config,
+        item_exit,
+        item_bypass_double_copy,
+        item_bypass_shift_key,
+        item_bypass_scroll_lock,
+        history_ids,
+    )
 }
 
 fn main() {
@@ -401,8 +435,22 @@ fn main() {
     let initial_history = fetch_history(&config);
 
     // Build initial menu
-    let (mut _menu, mut item_enabled, mut item_edit_config, mut item_exit, mut history_ids) =
-        build_tray_menu(config.enabled, &initial_history);
+    let (
+        mut _menu,
+        mut item_enabled,
+        mut item_edit_config,
+        mut item_exit,
+        mut item_bypass_double_copy,
+        mut item_bypass_shift_key,
+        mut item_bypass_scroll_lock,
+        mut history_ids,
+    ) = build_tray_menu(
+        config.enabled,
+        &initial_history,
+        config.bypass_double_copy,
+        config.bypass_shift_key,
+        config.bypass_scroll_lock,
+    );
 
     // Create shared application state
     let state = Arc::new(Mutex::new(AppState {
@@ -411,6 +459,9 @@ fn main() {
         last_attempted_long_url: None,
         history: initial_history,
         needs_menu_rebuild: false,
+        bypass_double_copy: config.bypass_double_copy,
+        bypass_shift_key: config.bypass_shift_key,
+        bypass_scroll_lock: config.bypass_scroll_lock,
     }));
 
     // Initialize Tray Icon
@@ -483,6 +534,33 @@ fn main() {
                     let mut s = state.lock().unwrap();
                     s.enabled = checked;
                     s.needs_menu_rebuild = true;
+                } else if event.id == item_bypass_double_copy.id() {
+                    let checked = item_bypass_double_copy.is_checked();
+                    log_debug(&format!("Menu event: toggled bypass_double_copy check state to {}", checked));
+                    let mut s = state.lock().unwrap();
+                    s.bypass_double_copy = checked;
+                    s.needs_menu_rebuild = true;
+                    let mut cfg = load_config();
+                    cfg.bypass_double_copy = checked;
+                    config::save_config(&cfg);
+                } else if event.id == item_bypass_shift_key.id() {
+                    let checked = item_bypass_shift_key.is_checked();
+                    log_debug(&format!("Menu event: toggled bypass_shift_key check state to {}", checked));
+                    let mut s = state.lock().unwrap();
+                    s.bypass_shift_key = checked;
+                    s.needs_menu_rebuild = true;
+                    let mut cfg = load_config();
+                    cfg.bypass_shift_key = checked;
+                    config::save_config(&cfg);
+                } else if event.id == item_bypass_scroll_lock.id() {
+                    let checked = item_bypass_scroll_lock.is_checked();
+                    log_debug(&format!("Menu event: toggled bypass_scroll_lock check state to {}", checked));
+                    let mut s = state.lock().unwrap();
+                    s.bypass_scroll_lock = checked;
+                    s.needs_menu_rebuild = true;
+                    let mut cfg = load_config();
+                    cfg.bypass_scroll_lock = checked;
+                    config::save_config(&cfg);
                 } else if event.id == item_edit_config.id() {
                     log_debug("Menu event: Edit Configuration clicked.");
                     let config_path = config::get_config_path();
@@ -519,16 +597,30 @@ fn main() {
                 let mut s = state.lock().unwrap();
                 if s.needs_menu_rebuild {
                     s.needs_menu_rebuild = false;
-                    Some((s.enabled, s.history.clone()))
+                    Some((s.enabled, s.history.clone(), s.bypass_double_copy, s.bypass_shift_key, s.bypass_scroll_lock))
                 } else {
                     None
                 }
             };
 
-            if let Some((enabled, history)) = rebuild {
+            if let Some((enabled, history, bypass_double_copy, bypass_shift_key, bypass_scroll_lock)) = rebuild {
                 log_debug("Rebuilding context menu...");
-                let (new_menu, new_enabled, new_edit, new_exit, new_ids) =
-                    build_tray_menu(enabled, &history);
+                let (
+                    new_menu,
+                    new_enabled,
+                    new_edit,
+                    new_exit,
+                    new_bypass_double_copy,
+                    new_bypass_shift_key,
+                    new_bypass_scroll_lock,
+                    new_ids,
+                ) = build_tray_menu(
+                    enabled,
+                    &history,
+                    bypass_double_copy,
+                    bypass_shift_key,
+                    bypass_scroll_lock,
+                );
                 
                 let _ = tray_icon.set_menu(Some(Box::new(new_menu.clone())));
                 let _ = tray_icon.set_icon(Some(create_icon(enabled)));
@@ -537,6 +629,9 @@ fn main() {
                 item_enabled = new_enabled;
                 item_edit_config = new_edit;
                 item_exit = new_exit;
+                item_bypass_double_copy = new_bypass_double_copy;
+                item_bypass_shift_key = new_bypass_shift_key;
+                item_bypass_scroll_lock = new_bypass_scroll_lock;
                 history_ids = new_ids;
             }
         }
