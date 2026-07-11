@@ -62,7 +62,18 @@ pub fn get_config_path() -> PathBuf {
 pub fn load_config() -> Config {
     let path = get_config_path();
     let mut config = if let Ok(content) = fs::read_to_string(&path) {
-        toml::from_str(&content).unwrap_or_else(|_| Config::default())
+        match toml::from_str(&content) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                let mut log_path = std::env::temp_dir();
+                log_path.push("yourls-tray-app.log");
+                if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(log_path) {
+                    use std::io::Write;
+                    let _ = writeln!(f, "Failed to parse config.toml: {:?}", e);
+                }
+                Config::default()
+            }
+        }
     } else {
         Config::default()
     };

@@ -131,6 +131,7 @@ impl ClipboardHandler for ClipboardMonitor {
             // Reload configuration to ensure we use the latest settings
             let config = load_config();
 
+            log_debug(&format!("Active status: enabled={}, api_url='{}', signature='{}'", enabled, config.api_url, config.signature));
             if !enabled || config.api_url.trim().is_empty() || config.signature.trim().is_empty() {
                 log_debug("App is disabled or configuration (API URL / Signature) is incomplete.");
                 return;
