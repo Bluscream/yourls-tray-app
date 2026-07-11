@@ -4,7 +4,7 @@ mod config;
 
 use arboard::Clipboard;
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
-use config::{load_config, save_config};
+use config::load_config;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -14,6 +14,15 @@ use tray_icon::{
 };
 use url::Url;
 use winrt_notification::Toast;
+
+fn log_debug(msg: &str) {
+    let mut log_path = std::env::temp_dir();
+    log_path.push("yourls-tray-app.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+        use std::io::Write;
+        let _ = writeln!(f, "{}", msg);
+    }
+}
 
 struct AppState {
     enabled: bool,
@@ -52,6 +61,8 @@ impl ClipboardHandler for ClipboardMonitor {
                 return;
             }
 
+            log_debug(&format!("Clipboard URL detected: {}", text));
+
             // Reload configuration to ensure we use the latest settings
             let config = load_config();
 
@@ -62,7 +73,23 @@ impl ClipboardHandler for ClipboardMonitor {
             };
 
             if !enabled || config.api_url.trim().is_empty() || config.signature.trim().is_empty() {
+                log_debug("App is disabled or configuration (API URL / Signature) is incomplete.");
                 return;
+            }
+
+            // Check regex blacklist pattern
+            if !config.blacklist_regex.trim().is_empty() {
+                match regex::Regex::new(&config.blacklist_regex) {
+                    Ok(re) => {
+                        if re.is_match(&text) {
+                            log_debug(&format!("Ignoring URL because it matches blacklist_regex: {}", config.blacklist_regex));
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        log_debug(&format!("Invalid blacklist_regex pattern: {:?}. Pattern: {}", e, config.blacklist_regex));
+                    }
+                }
             }
 
             // 1. Avoid infinite loops
@@ -74,12 +101,14 @@ impl ClipboardHandler for ClipboardMonitor {
 
             // 2. Ignore if it already starts with the configured base_url
             if text.starts_with(&config.base_url) {
+                log_debug("Ignoring URL because it is already a shortened link.");
                 return;
             }
 
             // 3. Bypass check: copy same URL twice consecutively to bypass
             if let Some(ref last_att) = last_attempted {
                 if text == *last_att {
+                    log_debug("URL copied twice consecutively. Bypassing shortening.");
                     let mut s = state_clone.lock().unwrap();
                     s.last_attempted_long_url = None;
                     return;
@@ -93,6 +122,7 @@ impl ClipboardHandler for ClipboardMonitor {
             }
 
             // Call YOURLS API to shorten
+            log_debug(&format!("Calling API to shorten URL: {}", text));
             let encoded_url: String = url::form_urlencoded::byte_serialize(text.as_bytes()).collect();
             let api_call_url = format!(
                 "{}?signature={}&action=shorturl&url={}&format=simple",
@@ -102,22 +132,38 @@ impl ClipboardHandler for ClipboardMonitor {
             let response = match ureq::get(&api_call_url).call() {
                 Ok(res) => match res.into_string() {
                     Ok(s) => s.trim().to_string(),
-                    Err(_) => return,
+                    Err(e) => {
+                        log_debug(&format!("API response read error: {:?}", e));
+                        return;
+                    }
                 },
-                Err(_) => return,
+                Err(e) => {
+                    log_debug(&format!("API request failed: {:?}", e));
+                    return;
+                }
             };
+
+            log_debug(&format!("API returned shortened URL: {}", response));
 
             // Verify response URL
             if !response.starts_with("http://") && !response.starts_with("https://") {
+                log_debug("API response was not a valid URL.");
                 return;
             }
 
             // Write back to clipboard
+            let mut write_ok = false;
             for _ in 0..5 {
                 if clipboard.set_text(response.clone()).is_ok() {
+                    write_ok = true;
                     break;
                 }
                 thread::sleep(Duration::from_millis(50));
+            }
+            if write_ok {
+                log_debug("Wrote shortened URL back to clipboard.");
+            } else {
+                log_debug("Failed to write shortened URL to clipboard.");
             }
 
             // Show Toast Notification
@@ -259,7 +305,7 @@ fn build_tray_menu(
 ) {
     let menu = Menu::new();
     let item_title = MenuItem::new("YOURLS Clipboard Shortener", false, None);
-    let item_enabled = CheckMenuItem::new("Enabled", enabled, true, None);
+    let item_enabled = CheckMenuItem::new("Enabled", true, enabled, None);
     let item_edit_config = MenuItem::new("Edit Configuration", true, None);
     let item_exit = MenuItem::new("Exit", true, None);
 
@@ -298,9 +344,11 @@ fn build_tray_menu(
 }
 
 fn main() {
+    log_debug("Application started.");
     let config = load_config();
 
     // Fetch initial history
+    log_debug("Fetching initial history...");
     let initial_history = fetch_history(&config);
 
     // Build initial menu
@@ -317,12 +365,14 @@ fn main() {
     }));
 
     // Initialize Tray Icon
+    log_debug("Initializing tray icon...");
     let tray_icon = TrayIconBuilder::new()
         .with_menu(Box::new(_menu.clone()))
         .with_tooltip("YOURLS Clipboard Shortener")
         .with_icon(create_icon(config.enabled))
         .build()
         .unwrap();
+    log_debug("Tray icon initialized successfully.");
 
     // Get current thread ID (main thread) so we can wake it up from the event listener thread
     let main_thread_id = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
@@ -358,15 +408,18 @@ fn main() {
     // Spawn Clipboard Monitor thread
     let state_monitor = state.clone();
     thread::spawn(move || {
+        log_debug("Spawning Clipboard Monitor thread...");
         let monitor = ClipboardMonitor {
             state: state_monitor,
             main_thread_id,
         };
         let mut master = Master::new(monitor).expect("Failed to initialize clipboard listener");
+        log_debug("Clipboard Master starting run loop");
         master.run().expect("Clipboard listener loop failed");
     });
 
     // Run Win32 Message Pump
+    log_debug("Running Win32 Message Pump...");
     unsafe {
         let mut msg = std::mem::zeroed();
         while windows_sys::Win32::UI::WindowsAndMessaging::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
@@ -377,22 +430,21 @@ fn main() {
             while let Ok(event) = MenuEvent::receiver().try_recv() {
                 if event.id == item_enabled.id() {
                     let checked = item_enabled.is_checked();
+                    log_debug(&format!("Menu event: toggled enabled check state to {}", checked));
                     let mut s = state.lock().unwrap();
                     s.enabled = checked;
                     s.needs_menu_rebuild = true;
-                    
-                    let mut cfg = load_config();
-                    cfg.enabled = checked;
-                    save_config(&cfg);
                 } else if event.id == item_edit_config.id() {
+                    log_debug("Menu event: Edit Configuration clicked.");
                     let config_path = config::get_config_path();
                     let _ = std::process::Command::new("notepad.exe")
                         .arg(config_path)
                         .spawn();
                 } else if event.id == item_exit.id() {
+                    log_debug("Menu event: Exit clicked. Shutting down.");
                     std::process::exit(0);
                 } else if let Some(short_url) = history_ids.get(&event.id) {
-                    // Copy short url from history click
+                    log_debug(&format!("Menu event: history item clicked (url = {}). Copying to clipboard.", short_url));
                     if let Ok(mut clipboard) = Clipboard::new() {
                         let _ = clipboard.set_text(short_url.clone());
                         let _ = Toast::new("YOURLS.ClipboardShortener")
@@ -411,11 +463,7 @@ fn main() {
                     let mut s = state.lock().unwrap();
                     s.enabled = !s.enabled;
                     s.needs_menu_rebuild = true;
-                    let checked = s.enabled;
-                    
-                    let mut cfg = load_config();
-                    cfg.enabled = checked;
-                    save_config(&cfg);
+                    log_debug(&format!("Tray event: left-click toggled enabled status to {}", s.enabled));
                 }
             }
 
@@ -431,6 +479,7 @@ fn main() {
             };
 
             if let Some((enabled, history)) = rebuild {
+                log_debug("Rebuilding context menu...");
                 let (new_menu, new_enabled, new_edit, new_exit, new_ids) =
                     build_tray_menu(enabled, &history);
                 

@@ -13,6 +13,8 @@ pub struct Config {
     pub signature: String,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    #[serde(default)]
+    pub blacklist_regex: String,
 }
 
 fn default_enabled() -> bool {
@@ -26,6 +28,7 @@ impl Default for Config {
             api_url: String::new(),
             signature: String::new(),
             enabled: true,
+            blacklist_regex: String::new(),
         }
     }
 }
