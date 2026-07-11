@@ -27,7 +27,25 @@ fn is_scroll_lock_active() -> bool {
     {
         unsafe { (GetKeyState(0x91) & 1) != 0 }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(entries) = std::fs::read_dir("/sys/class/leds") {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.contains("scrolllock") {
+                        let brightness_path = entry.path().join("brightness");
+                        if let Ok(content) = std::fs::read_to_string(brightness_path) {
+                            if content.trim() != "0" {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "linux")))]
     {
         false
     }
