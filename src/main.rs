@@ -67,9 +67,12 @@ impl ClipboardHandler for ClipboardMonitor {
                 return;
             }
 
-            // Check if Shift key is pressed or Scroll Lock is active
-            let shift_pressed = unsafe { (GetAsyncKeyState(0x10) as u16 & 0x8000) != 0 };
-            let scroll_lock_active = unsafe { (GetKeyState(0x91) & 1) != 0 };
+            // Reload configuration to ensure we use the latest settings
+            let config = load_config();
+
+            // Check if Shift key is pressed or Scroll Lock is active (if enabled in config)
+            let shift_pressed = config.bypass_shift_key && unsafe { (GetAsyncKeyState(0x10) as u16 & 0x8000) != 0 };
+            let scroll_lock_active = config.bypass_scroll_lock && unsafe { (GetKeyState(0x91) & 1) != 0 };
 
             if shift_pressed || scroll_lock_active {
                 log_debug(&format!("Bypassing URL shortening. Shift pressed: {}, Scroll Lock active: {}", shift_pressed, scroll_lock_active));
@@ -77,9 +80,6 @@ impl ClipboardHandler for ClipboardMonitor {
             }
 
             log_debug(&format!("Clipboard URL detected: {}", text));
-
-            // Reload configuration to ensure we use the latest settings
-            let config = load_config();
 
             // Lock state to read history and check if enabled
             let (enabled, last_written, last_attempted) = {
@@ -121,12 +121,14 @@ impl ClipboardHandler for ClipboardMonitor {
             }
 
             // 3. Bypass check: copy same URL twice consecutively to bypass
-            if let Some(ref last_att) = last_attempted {
-                if text == *last_att {
-                    log_debug("URL copied twice consecutively. Bypassing shortening.");
-                    let mut s = state_clone.lock().unwrap();
-                    s.last_attempted_long_url = None;
-                    return;
+            if config.bypass_double_copy {
+                if let Some(ref last_att) = last_attempted {
+                    if text == *last_att {
+                        log_debug("URL copied twice consecutively. Bypassing shortening.");
+                        let mut s = state_clone.lock().unwrap();
+                        s.last_attempted_long_url = None;
+                        return;
+                    }
                 }
             }
 

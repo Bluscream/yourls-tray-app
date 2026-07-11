@@ -25,6 +25,9 @@ A lightweight Windows system tray application written in Rust that monitors your
    - `api_url`: Your YOURLS API endpoint (e.g. `https://sho.rt/yourls-api.php`).
    - `signature`: Your YOURLS passwordless API token.
    - `blacklist_regex`: Optional regex pattern to filter out specific URLs (e.g., `'^https://discord\.com/users/\d{17,20}$'`).
+   - `bypass_double_copy`: Enable/disable double-copy bypass (default: `true`).
+   - `bypass_shift_key`: Enable/disable shift key bypass (default: `true`).
+   - `bypass_scroll_lock`: Enable/disable scroll lock bypass (default: `true`).
 
 ## Authors
 

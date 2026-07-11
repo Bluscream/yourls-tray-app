@@ -11,13 +11,19 @@ pub struct Config {
     pub api_url: String,
     #[serde(default)]
     pub signature: String,
-    #[serde(default = "default_enabled")]
+    #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
     pub blacklist_regex: String,
+    #[serde(default = "default_true")]
+    pub bypass_double_copy: bool,
+    #[serde(default = "default_true")]
+    pub bypass_shift_key: bool,
+    #[serde(default = "default_true")]
+    pub bypass_scroll_lock: bool,
 }
 
-fn default_enabled() -> bool {
+fn default_true() -> bool {
     true
 }
 
@@ -29,6 +35,9 @@ impl Default for Config {
             signature: String::new(),
             enabled: true,
             blacklist_regex: String::new(),
+            bypass_double_copy: true,
+            bypass_shift_key: true,
+            bypass_scroll_lock: true,
         }
     }
 }
