@@ -46,7 +46,9 @@ pub fn get_config_path() -> PathBuf {
     if let Ok(mut exe_path) = std::env::current_exe() {
         exe_path.pop();
         let local_config = exe_path.join("config.toml");
-        return local_config;
+        if local_config.exists() {
+            return local_config;
+        }
     }
     
     let home = std::env::var("USERPROFILE")
@@ -61,6 +63,12 @@ pub fn get_config_path() -> PathBuf {
 
 pub fn load_config() -> Config {
     let path = get_config_path();
+    if !path.exists() {
+        let default_config = Config::default();
+        save_config(&default_config);
+        return default_config;
+    }
+
     let mut config = if let Ok(content) = fs::read_to_string(&path) {
         match toml::from_str(&content) {
             Ok(cfg) => cfg,

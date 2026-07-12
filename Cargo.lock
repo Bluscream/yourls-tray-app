@@ -2988,6 +2988,8 @@ dependencies = [
  "clipboard-master",
  "crossbeam-channel",
  "device_query",
+ "glib",
+ "gtk",
  "notify-rust",
  "regex",
  "serde",
