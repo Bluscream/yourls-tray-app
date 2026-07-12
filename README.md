@@ -1,6 +1,6 @@
 # yourls-tray-app
 
-A lightweight Windows system tray application written in Rust that monitors your clipboard for URLs and automatically shortens them using your personal YOURLS server.
+A lightweight system tray application written in Rust for Windows and Linux (Wayland/X11) that monitors your clipboard for URLs and automatically shortens them using your personal YOURLS server.
 
 ## Features
 
@@ -14,14 +14,42 @@ A lightweight Windows system tray application written in Rust that monitors your
   - Access recent shortening history to copy previous short links.
   - Quick access to edit configurations.
 - **Regex URL Blacklist**: Block specific URLs or domains from being shortened using custom regular expressions.
-- **Local Logging**: Debug logs are written to `%TEMP%/yourls-tray-app.log` to track URL detection and API status.
-- **Desktop Notifications**: Standard Windows Toast Notifications alert you when links are successfully shortened.
+- **Local Logging**: Debug logs are written to `%TEMP%/yourls-tray-app.log` (Windows) or `/tmp/yourls-tray-app.log` (Linux).
+- **Desktop Notifications**: Standard Toast Notifications (Windows) or Desktop Notifications (Linux) alert you when links are successfully shortened.
 
 ## Installation & Setup
 
-1. Download the latest release executable from the [Releases](https://github.com/Bluscream/yourls-tray-app/releases) tab.
+### Windows
+1. Download the latest release `yourls-tray-app.exe` from the [Releases](https://github.com/Bluscream/yourls-tray-app/releases) tab.
 2. Run the application once to generate the default configuration.
-3. Open the configuration file (via tray menu **Edit Configuration** or at `%USERPROFILE%/.yourls-clipboard-shortener/config.toml`) and set your:
+3. Open the configuration file (via tray menu **Edit Configuration** or at `%USERPROFILE%/.yourls-clipboard-shortener/config.toml`).
+
+### Linux
+To run natively on Linux (Wayland or X11), ensure the required clipboard and keyboard library packages are installed:
+
+* **Fedora Silverblue / Bazzite / Kinoite (via rpm-ostree)**:
+  ```bash
+  sudo rpm-ostree install --apply-live wl-clipboard xdotool
+  ```
+* **Fedora / RHEL**:
+  ```bash
+  sudo dnf install wl-clipboard xdotool
+  ```
+* **Ubuntu / Debian**:
+  ```bash
+  sudo apt install wl-clipboard xdotool
+  ```
+* **Arch Linux**:
+  ```bash
+  sudo pacman -S wl-clipboard xdotool
+  ```
+
+1. Download the latest release `yourls-tray-app` Linux binary from the [Releases](https://github.com/Bluscream/yourls-tray-app/releases) tab.
+2. Make it executable (`chmod +x yourls-tray-app`) and run it once to generate the configuration file.
+3. Edit the config via the tray menu or at `~/.yourls-clipboard-shortener/config.toml`.
+
+### Configuration Fields
+Set the following options in `config.toml`:
    - `api_url`: Your YOURLS API endpoint (e.g. `https://sho.rt/yourls-api.php`).
    - `signature`: Your YOURLS passwordless API token.
    - `blacklist_regex`: Optional regex pattern to filter out specific URLs (e.g., `'^https://discord\.com/users/\d{17,20}$'`).
