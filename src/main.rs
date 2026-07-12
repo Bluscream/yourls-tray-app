@@ -64,13 +64,12 @@ fn log_debug(msg: &str) {
 
 struct AppState {
     enabled: bool,
-    last_written_url: Option<String>,
+    config: config::Config,
     last_attempted_long_url: Option<String>,
+    last_undo_pair: Option<(String, String)>, // (long_url, short_url)
     history: Vec<(String, String)>,
     needs_menu_rebuild: bool,
-    bypass_double_copy: bool,
-    bypass_shift_key: bool,
-    bypass_scroll_lock: bool,
+    bypass_undo_write: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -178,25 +177,32 @@ fn process_clipboard_text(
     }
 
     // Lock state to read history, enabled status, and bypass toggles
-    let (enabled, last_written, last_attempted, bypass_double_copy, bypass_shift_key, bypass_scroll_lock) = {
+    let (enabled, last_undo_pair, last_attempted, config, bypass_undo_write) = {
         let s = state_clone.lock().unwrap();
         (
             s.enabled,
-            s.last_written_url.clone(),
+            s.last_undo_pair.clone(),
             s.last_attempted_long_url.clone(),
-            s.bypass_double_copy,
-            s.bypass_shift_key,
-            s.bypass_scroll_lock,
+            s.config.clone(),
+            s.bypass_undo_write,
         )
     };
 
+    // If the undo hotkey just wrote a long URL back, skip processing once
+    if bypass_undo_write {
+        let mut s = state_clone.lock().unwrap();
+        s.bypass_undo_write = false;
+        log_debug("Skipping clipboard processing: undo bypass active.");
+        return None;
+    }
+
     // Check if Shift key is pressed or Scroll Lock is active (if enabled)
-    let shift_pressed = bypass_shift_key && {
+    let shift_pressed = config.bypass_shift_key && {
         let device_state = DeviceState::new();
         let keys = device_state.get_keys();
         keys.contains(&Keycode::LShift) || keys.contains(&Keycode::RShift)
     };
-    let scroll_lock_active = bypass_scroll_lock && is_scroll_lock_active();
+    let scroll_lock_active = config.bypass_scroll_lock && is_scroll_lock_active();
 
     if shift_pressed || scroll_lock_active {
         log_debug(&format!("Bypassing URL shortening. Shift pressed: {}, Scroll Lock active: {}", shift_pressed, scroll_lock_active));
@@ -204,9 +210,6 @@ fn process_clipboard_text(
     }
 
     log_debug(&format!("Clipboard URL detected: {}", text));
-
-    // Reload configuration to ensure we use the latest settings
-    let config = load_config();
 
     log_debug(&format!("Active status: enabled={}, api_url='{}', signature='{}'", enabled, config.api_url, config.signature));
     if !enabled || config.api_url.trim().is_empty() || config.signature.trim().is_empty() {
@@ -230,8 +233,8 @@ fn process_clipboard_text(
     }
 
     // 1. Avoid infinite loops
-    if let Some(ref last_w) = last_written {
-        if text == *last_w {
+    if let Some((_, ref short_w)) = last_undo_pair {
+        if text == *short_w {
             return None;
         }
     }
@@ -243,7 +246,7 @@ fn process_clipboard_text(
     }
 
     // 3. Bypass check: copy same URL twice consecutively to bypass
-    if bypass_double_copy {
+    if config.bypass_double_copy {
         if let Some(ref last_att) = last_attempted {
             if text == *last_att {
                 log_debug("URL copied twice consecutively. Bypassing shortening.");
@@ -326,7 +329,7 @@ fn process_clipboard_text(
     let updated_history = fetch_history(&config);
     {
         let mut s = state_clone.lock().unwrap();
-        s.last_written_url = Some(response.clone());
+        s.last_undo_pair = Some((text.clone(), response.clone()));
         s.history = updated_history;
         s.needs_menu_rebuild = true;
     }
@@ -534,27 +537,27 @@ fn handle_events(
             let checked = item_bypass_double_copy.is_checked();
             log_debug(&format!("Menu event: toggled bypass_double_copy check state to {}", checked));
             let mut s = state.lock().unwrap();
-            s.bypass_double_copy = checked;
+            s.config.bypass_double_copy = checked;
             s.needs_menu_rebuild = true;
-            let mut cfg = load_config();
+            let mut cfg = s.config.clone();
             cfg.bypass_double_copy = checked;
             config::save_config(&cfg);
         } else if event.id == item_bypass_shift_key.id() {
             let checked = item_bypass_shift_key.is_checked();
             log_debug(&format!("Menu event: toggled bypass_shift_key check state to {}", checked));
             let mut s = state.lock().unwrap();
-            s.bypass_shift_key = checked;
+            s.config.bypass_shift_key = checked;
             s.needs_menu_rebuild = true;
-            let mut cfg = load_config();
+            let mut cfg = s.config.clone();
             cfg.bypass_shift_key = checked;
             config::save_config(&cfg);
         } else if event.id == item_bypass_scroll_lock.id() {
             let checked = item_bypass_scroll_lock.is_checked();
             log_debug(&format!("Menu event: toggled bypass_scroll_lock check state to {}", checked));
             let mut s = state.lock().unwrap();
-            s.bypass_scroll_lock = checked;
+            s.config.bypass_scroll_lock = checked;
             s.needs_menu_rebuild = true;
-            let mut cfg = load_config();
+            let mut cfg = s.config.clone();
             cfg.bypass_scroll_lock = checked;
             config::save_config(&cfg);
         } else if event.id == item_edit_config.id() {
@@ -613,7 +616,9 @@ fn handle_events(
         let mut s = state.lock().unwrap();
         if s.needs_menu_rebuild {
             s.needs_menu_rebuild = false;
-            Some((s.enabled, s.history.clone(), s.bypass_double_copy, s.bypass_shift_key, s.bypass_scroll_lock))
+            // Reload configuration in case the file was modified manually
+            s.config = load_config();
+            Some((s.enabled, s.history.clone(), s.config.bypass_double_copy, s.config.bypass_shift_key, s.config.bypass_scroll_lock))
         } else {
             None
         }
@@ -655,15 +660,13 @@ fn handle_events(
 fn main() {
     log_debug("Application started.");
     
-    // Enforce single instance by binding to a local port
-    let _lock_socket = match std::net::UdpSocket::bind("127.0.0.1:58293") {
-        Ok(socket) => socket,
-        Err(_) => {
-            log_debug("Another instance is already running. Exiting.");
-            eprintln!("Another instance is already running. Exiting.");
-            std::process::exit(1);
-        }
-    };
+    // Enforce single instance cross-platform using named mutex / abstract socket
+    let instance = single_instance::SingleInstance::new("yourls-tray-app-single-instance-lock").unwrap();
+    if !instance.is_single() {
+        log_debug("Another instance is already running. Exiting.");
+        eprintln!("Another instance is already running. Exiting.");
+        std::process::exit(1);
+    }
 
     #[cfg(target_os = "linux")]
     {
@@ -694,27 +697,39 @@ fn main() {
         config.bypass_scroll_lock,
     );
 
+    // Initialize Tray Icon with retries on E_FAIL
+    log_debug("Initializing tray icon...");
+    let mut tray_icon = None;
+    for i in 0..5 {
+        match TrayIconBuilder::new()
+            .with_menu(Box::new(menu.clone()))
+            .with_tooltip("YOURLS Clipboard Shortener")
+            .with_icon(create_icon(config.enabled))
+            .build()
+        {
+            Ok(icon) => {
+                tray_icon = Some(icon);
+                break;
+            }
+            Err(e) => {
+                log_debug(&format!("Tray icon initialization failed (attempt {}/5): {:?}", i + 1, e));
+                thread::sleep(Duration::from_millis(500));
+            }
+        }
+    }
+    let tray_icon = tray_icon.expect("Failed to initialize tray icon after 5 attempts");
+    log_debug("Tray icon initialized successfully.");
+
     // Create shared application state
     let state = Arc::new(Mutex::new(AppState {
         enabled: config.enabled,
-        last_written_url: None,
+        config,
         last_attempted_long_url: None,
+        last_undo_pair: None,
         history: initial_history,
         needs_menu_rebuild: false,
-        bypass_double_copy: config.bypass_double_copy,
-        bypass_shift_key: config.bypass_shift_key,
-        bypass_scroll_lock: config.bypass_scroll_lock,
+        bypass_undo_write: false,
     }));
-
-    // Initialize Tray Icon
-    log_debug("Initializing tray icon...");
-    let tray_icon = TrayIconBuilder::new()
-        .with_menu(Box::new(menu.clone()))
-        .with_tooltip("YOURLS Clipboard Shortener")
-        .with_icon(create_icon(config.enabled))
-        .build()
-        .unwrap();
-    log_debug("Tray icon initialized successfully.");
 
     // Spawn Clipboard Monitor thread
     let state_monitor = state.clone();
@@ -731,6 +746,97 @@ fn main() {
             let mut master = Master::new(monitor).expect("Failed to initialize clipboard listener");
             log_debug("Clipboard Master starting run loop");
             master.run().expect("Clipboard listener loop failed");
+        });
+    }
+
+    // Spawn Ctrl+Backspace undo hotkey thread
+    {
+        let state_undo = state.clone();
+        thread::spawn(move || {
+            log_debug("Spawning Ctrl+Backspace undo hotkey thread...");
+            let device_state = DeviceState::new();
+            let mut was_pressed = false;
+            loop {
+                thread::sleep(Duration::from_millis(100));
+                let keys = device_state.get_keys();
+                let ctrl = keys.contains(&Keycode::LControl) || keys.contains(&Keycode::RControl);
+                let backspace = keys.contains(&Keycode::Backspace);
+                let pressed = ctrl && backspace;
+
+                if pressed && !was_pressed {
+                    log_debug("Ctrl+Backspace detected: attempting undo last shortening.");
+                    let undo_pair = {
+                        let s = state_undo.lock().unwrap();
+                        s.last_undo_pair.clone()
+                    };
+
+                    if let Some((long_url, short_url)) = undo_pair {
+                        log_debug(&format!("Undoing: deleting {} and restoring {}", short_url, long_url));
+
+                        // Extract the keyword (last path segment of the short URL)
+                        let keyword = short_url
+                            .trim_end_matches('/')
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+
+                        let config = {
+                            let s = state_undo.lock().unwrap();
+                            s.config.clone()
+                        };
+                        if !keyword.is_empty() && !config.api_url.trim().is_empty() && !config.signature.trim().is_empty() {
+                            let delete_url = format!(
+                                "{}?signature={}&action=delete&shorturl={}&format=json",
+                                config.api_url, config.signature, keyword
+                            );
+                            match ureq::get(&delete_url).call() {
+                                Ok(res) => {
+                                    let body = res.into_string().unwrap_or_default();
+                                    log_debug(&format!("Delete API response: {}", body));
+                                }
+                                Err(e) => {
+                                    log_debug(&format!("Delete API request failed: {:?}", e));
+                                }
+                            }
+                        }
+
+                        // Set bypass flag then write original long URL back to clipboard
+                        {
+                            let mut s = state_undo.lock().unwrap();
+                            s.bypass_undo_write = true;
+                            s.last_undo_pair = None;
+                        }
+
+                        #[cfg(target_os = "windows")]
+                        {
+                            if let Ok(mut clipboard) = Clipboard::new() {
+                                for _ in 0..5 {
+                                    if clipboard.set_text(long_url.clone()).is_ok() {
+                                        break;
+                                    }
+                                    thread::sleep(Duration::from_millis(50));
+                                }
+                            }
+                        }
+                        #[cfg(target_os = "linux")]
+                        {
+                            let _ = set_linux_clipboard(&long_url);
+                        }
+
+                        let _ = Notification::new()
+                            .summary("Shortening Undone")
+                            .body(&format!("Deleted: {}\nRestored: {}", short_url, long_url))
+                            .show();
+
+                        log_debug("Undo complete: original URL restored to clipboard.");
+                    } else {
+                        log_debug("Ctrl+Backspace: no undo pair available.");
+                    }
+                }
+
+                was_pressed = pressed;
+            }
         });
     }
 

@@ -1,6 +1,6 @@
 [package]
 name = "yourls-tray-app"
-version = "0.1.11"
+version = "1.0.1"
 edition = "2024"
 
 
