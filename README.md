@@ -1,4 +1,4 @@
-# yourls-tray-app
+# YOURLS Tray App
 
 A lightweight system tray application written in Rust for Windows and Linux (Wayland/X11) that monitors your clipboard for URLs and automatically shortens them using your personal YOURLS server.
 
@@ -16,6 +16,17 @@ A lightweight system tray application written in Rust for Windows and Linux (Way
 - **Regex URL Blacklist**: Block specific URLs or domains from being shortened using custom regular expressions.
 - **Local Logging**: Debug logs are written to `%TEMP%/yourls-tray-app.log` (Windows) or `/tmp/yourls-tray-app.log` (Linux).
 - **Desktop Notifications**: Standard Toast Notifications (Windows) or Desktop Notifications (Linux) alert you when links are successfully shortened.
+
+## Screenshots
+
+<details>
+<summary>Screenshot(s)</summary>
+
+| YOURLS Tray App Menu |
+| :---: |
+| ![YOURLS Tray App Menu](https://raw.githubusercontent.com/Bluscream/yourls-tray-app/master/screenshots/tray_menu.png) |
+
+</details>
 
 ## Installation & Setup
 
@@ -48,14 +59,21 @@ To run natively on Linux (Wayland or X11), ensure the required clipboard and key
 2. Make it executable (`chmod +x yourls-tray-app`) and run it once to generate the configuration file.
 3. Edit the config via the tray menu or at `~/.yourls-clipboard-shortener/config.toml`.
 
-### Configuration Fields
-Set the following options in `config.toml`:
-   - `api_url`: Your YOURLS API endpoint (e.g. `https://sho.rt/yourls-api.php`).
-   - `signature`: Your YOURLS passwordless API token.
-   - `blacklist_regex`: Optional regex pattern to filter out specific URLs (e.g., `'^https://discord\.com/users/\d{17,20}$'`).
-   - `bypass_double_copy`: Enable/disable double-copy bypass (default: `true`).
-   - `bypass_shift_key`: Enable/disable shift key bypass (default: `true`).
-   - `bypass_scroll_lock`: Enable/disable scroll lock bypass (default: `true`).
+## Configuration Options
+
+Configure the application by modifying `config.toml`. The following options are available:
+
+| Setting Option | Type | Default Value | Description |
+| :--- | :--- | :--- | :--- |
+| `base_url` | String | `""` | The base/home URL of your YOURLS instance (e.g. `https://sho.rt/`). Optional if `api_url` is provided. |
+| `api_url` | String | `""` | The API endpoint of your YOURLS instance (`yourls-api.php`). Optional if `base_url` is provided. |
+| `signature` | String | `""` | Your secure, passwordless YOURLS API signature token. |
+| `enabled` | Boolean | `true` | Whether the clipboard monitoring and auto-shortening is active on startup. |
+| `blacklist_regex` | String | `""` | Optional regex pattern to filter out specific URLs (e.g. `^https://discord\.com/users/\d{17,20}$`). |
+| `bypass_double_copy` | Boolean | `true` | Skip shortening if the exact same URL is copied twice consecutively. |
+| `bypass_shift_key` | Boolean | `true` | Bypass shortening if the `Shift` key is held down during the copy event. |
+| `bypass_scroll_lock` | Boolean | `true` | Pause shortening globally when keyboard `Scroll Lock` is turned ON. |
+| `enable_undo` | Boolean | `true` | Restore/undo the previous clipboard contents if the shortener request fails. |
 
 ## Authors
 
