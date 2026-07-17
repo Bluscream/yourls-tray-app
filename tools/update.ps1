@@ -180,7 +180,6 @@ if ($wslList -notmatch "Alpine") {
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Installing Linux build dependencies in WSL Alpine..."
-# We install rustup to manage the toolchain, but we do NOT install alpine's system rust/cargo package because they conflict.
 InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz"
 
 Step "Setting up i686-linux-musl cross-toolchain..."
@@ -206,37 +205,27 @@ fi
 wsl -d $WslDistro sh -c $setupToolchain.Replace("'", "'\''")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. Sync source to WSL and write Cargo cross-compile config
+# 6. Sync workspace source and build scripts to WSL
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Syncing workspace to WSL native filesystem..."
-InvokeWsl "mkdir -p $WslRepo && rm -rf $WslRepo/src && cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
+InvokeWsl "mkdir -p $WslRepo"
+InvokeWsl "rm -rf $WslRepo/src"
+InvokeWsl "cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
+InvokeWsl "cp '$WslSrc/tools/update.sh' $WslRepo/update.sh && chmod +x $WslRepo/update.sh"
 
 Step "Writing Cargo cross-compilation config..."
 InvokeWsl "mkdir -p $WslRepo/.cargo && printf '[target.i686-unknown-linux-musl]\nlinker = \"i686-linux-musl-gcc\"\n' > $WslRepo/.cargo/config.toml"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. Compile Linux binaries in WSL
+# 7. Execute compile & packaging steps via update.sh inside WSL
 # ─────────────────────────────────────────────────────────────────────────────
 
-Step "Compiling Linux x64 binary..."
-InvokeWsl 'export PATH=/root/.cargo/bin:\$PATH && cd ~/yourls-tray-app && CARGO_BUILD_JOBS=20 cargo build --release'
-
-Step "Compiling Linux i686 (32-bit) binary..."
-InvokeWsl 'export PATH=/root/.cargo/bin:\$PATH && cd ~/yourls-tray-app && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl'
+Step "Running Linux builds and packaging inside WSL..."
+InvokeWsl "cd $WslRepo && ./update.sh"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. Package AppImages in WSL
-# ─────────────────────────────────────────────────────────────────────────────
-
-Step "Packaging Linux x64 AppImage..."
-Build-AppImage "AppDir64" "target/release/yourls-tray-app" "yourls-tray-app-x86_64.AppImage" "x86_64"
-
-Step "Packaging Linux i686 AppImage..."
-Build-AppImage "AppDir32" "target/i686-unknown-linux-musl/release/yourls-tray-app" "yourls-tray-app-i686.AppImage" "i686"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 9. Copy binaries back to Windows host
+# 8. Copy binaries back to Windows host
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Copying compiled Linux binaries back to host..."
