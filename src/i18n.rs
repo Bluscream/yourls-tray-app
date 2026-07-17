@@ -1,0 +1,226 @@
+pub enum Key {
+    MonitorClipboard,
+    SelectServer,
+    BypassMethods,
+    RecentLinks,
+    NoRecentLinks,
+    DoubleCopy,
+    ShiftKey,
+    ScrollLock,
+    UndoHotkey,
+    EditConfiguration,
+    Exit,
+    ClipboardLinkShortened,
+    OriginalShortened,
+    CopiedFromHistory,
+    ShortLinkCopied,
+    ShorteningUndone,
+    DeletedRestored,
+    UndoComplete,
+    NoUndoPair,
+    Random,
+    ShortenOnAll,
+    AppTitle,
+}
+
+pub fn t(key: Key, locale: &str) -> &'static str {
+    match locale.to_lowercase().as_str() {
+        "de" => match key {
+            Key::MonitorClipboard => "Zwischenablage überwachen",
+            Key::SelectServer => "Server auswählen",
+            Key::BypassMethods => "Bypass-Methoden",
+            Key::RecentLinks => "Letzte Links",
+            Key::NoRecentLinks => "(keine letzten Links)",
+            Key::DoubleCopy => "Doppeltes Kopieren",
+            Key::ShiftKey => "Umschalttaste",
+            Key::ScrollLock => "Rollen-Taste",
+            Key::UndoHotkey => "Rückgängig-Shortcut (Strg+Rücktaste)",
+            Key::EditConfiguration => "Konfiguration bearbeiten",
+            Key::Exit => "Beenden",
+            Key::ClipboardLinkShortened => "Zwischenablage-Link gekürzt",
+            Key::OriginalShortened => "Original: {}\nGekürzt: {}",
+            Key::CopiedFromHistory => "Aus Verlauf kopiert",
+            Key::ShortLinkCopied => "Kurzlink in die Zwischenablage kopiert:\n{}",
+            Key::ShorteningUndone => "Kürzung rückgängig gemacht",
+            Key::DeletedRestored => "Gelöscht: {}\nWiederhergestellt: {}",
+            Key::UndoComplete => "Rückgängig abgeschlossen: Original-URL wiederhergestellt.",
+            Key::NoUndoPair => "Strg+Rücktaste: Kein vorheriger Link zum Rückgängigmachen vorhanden.",
+            Key::Random => "Zufällig",
+            Key::ShortenOnAll => "Auf allen kürzen",
+            Key::AppTitle => "YOURLS Shortener",
+        },
+        "ru" => match key {
+            Key::MonitorClipboard => "Мониторить буфер",
+            Key::SelectServer => "Выбрать сервер",
+            Key::BypassMethods => "Методы обхода",
+            Key::RecentLinks => "Последние ссылки",
+            Key::NoRecentLinks => "(нет последних ссылок)",
+            Key::DoubleCopy => "Двойное копирование",
+            Key::ShiftKey => "Клавиша Shift",
+            Key::ScrollLock => "Scroll Lock",
+            Key::UndoHotkey => "Отмена (Ctrl+Backspace)",
+            Key::EditConfiguration => "Редактировать настройки",
+            Key::Exit => "Выход",
+            Key::ClipboardLinkShortened => "Ссылка в буфере сокращена",
+            Key::OriginalShortened => "Оригинал: {}\nСокращено: {}",
+            Key::CopiedFromHistory => "Скопировано из истории",
+            Key::ShortLinkCopied => "Короткая ссылка скопирована в буфер:\n{}",
+            Key::ShorteningUndone => "Сокращение отменено",
+            Key::DeletedRestored => "Удалено: {}\nВосстановлено: {}",
+            Key::UndoComplete => "Отмена завершена: оригинальный URL восстановлен.",
+            Key::NoUndoPair => "Ctrl+Backspace: нет доступных ссылок для отмены.",
+            Key::Random => "Случайный",
+            Key::ShortenOnAll => "Сокращать на всех",
+            Key::AppTitle => "Сокращатель YOURLS",
+        },
+        "ja" => match key {
+            Key::MonitorClipboard => "クリップボードを監視",
+            Key::SelectServer => "サーバーの選択",
+            Key::BypassMethods => "バイパス方法",
+            Key::RecentLinks => "最近のリンク",
+            Key::NoRecentLinks => "（最近のリンクはありません）",
+            Key::DoubleCopy => "二重コピー",
+            Key::ShiftKey => "Shiftキー",
+            Key::ScrollLock => "Scroll Lockキー",
+            Key::UndoHotkey => "元に戻す (Ctrl+Backspace)",
+            Key::EditConfiguration => "設定の編集",
+            Key::Exit => "終了",
+            Key::ClipboardLinkShortened => "クリップボードのリンクが短縮されました",
+            Key::OriginalShortened => "元: {}\n短縮: {}",
+            Key::CopiedFromHistory => "履歴からコピーしました",
+            Key::ShortLinkCopied => "短縮リンクをクリップボードにコピーしました:\n{}",
+            Key::ShorteningUndone => "短縮が元に戻されました",
+            Key::DeletedRestored => "削除: {}\n復元: {}",
+            Key::UndoComplete => "元に戻しました。元のURLが復元されました。",
+            Key::NoUndoPair => "Ctrl+Backspace: 元に戻せるリンクがありません。",
+            Key::Random => "ランダム",
+            Key::ShortenOnAll => "すべてで短縮",
+            Key::AppTitle => "YOURLS短縮ツール",
+        },
+        "zh" | "cn" => match key {
+            Key::MonitorClipboard => "监控剪贴板",
+            Key::SelectServer => "选择服务器",
+            Key::BypassMethods => "绕过方式",
+            Key::RecentLinks => "最近链接",
+            Key::NoRecentLinks => "(暂无最近链接)",
+            Key::DoubleCopy => "重复复制",
+            Key::ShiftKey => "Shift键",
+            Key::ScrollLock => "Scroll Lock键",
+            Key::UndoHotkey => "撤销快捷键 (Ctrl+Backspace)",
+            Key::EditConfiguration => "编辑配置",
+            Key::Exit => "退出",
+            Key::ClipboardLinkShortened => "剪贴板链接已缩短",
+            Key::OriginalShortened => "原链接: {}\n短网址: {}",
+            Key::CopiedFromHistory => "从历史记录复制",
+            Key::ShortLinkCopied => "短网址已复制到剪贴板:\n{}",
+            Key::ShorteningUndone => "缩短操作已撤销",
+            Key::DeletedRestored => "已删除: {}\n已恢复: {}",
+            Key::UndoComplete => "撤销完成: 已将原网址恢复到剪贴板。",
+            Key::NoUndoPair => "Ctrl+Backspace: 暂无可撤销的链接。",
+            Key::Random => "随机",
+            Key::ShortenOnAll => "在所有服务器缩短",
+            Key::AppTitle => "YOURLS短网址",
+        },
+        "fr" => match key {
+            Key::MonitorClipboard => "Surveiller le presse-papiers",
+            Key::SelectServer => "Sélectionner le serveur",
+            Key::BypassMethods => "Méthodes de contournement",
+            Key::RecentLinks => "Liens récents",
+            Key::NoRecentLinks => "(aucun lien récent)",
+            Key::DoubleCopy => "Double copie",
+            Key::ShiftKey => "Touche Shift",
+            Key::ScrollLock => "Arrêt défil",
+            Key::UndoHotkey => "Annuler (Ctrl+Backspace)",
+            Key::EditConfiguration => "Modifier la configuration",
+            Key::Exit => "Quitter",
+            Key::ClipboardLinkShortened => "Lien du presse-papiers raccourci",
+            Key::OriginalShortened => "Original: {}\nRaccourci: {}",
+            Key::CopiedFromHistory => "Copié de l'historique",
+            Key::ShortLinkCopied => "Lien court copié dans le presse-papiers:\n{}",
+            Key::ShorteningUndone => "Raccourcissement annulé",
+            Key::DeletedRestored => "Supprimé: {}\nRestauré: {}",
+            Key::UndoComplete => "Annulation terminée: l'URL d'origine a été restaurée.",
+            Key::NoUndoPair => "Ctrl+Backspace: aucun lien disponible pour annulation.",
+            Key::Random => "Aléatoire",
+            Key::ShortenOnAll => "Raccourcir sur tous",
+            Key::AppTitle => "Raccourisseur YOURLS",
+        },
+        "es" => match key {
+            Key::MonitorClipboard => "Monitorear portapapeles",
+            Key::SelectServer => "Seleccionar servidor",
+            Key::BypassMethods => "Métodos de derivación",
+            Key::RecentLinks => "Enlaces recientes",
+            Key::NoRecentLinks => "(no hay enlaces recientes)",
+            Key::DoubleCopy => "Copia doble",
+            Key::ShiftKey => "Tecla Shift",
+            Key::ScrollLock => "Bloq Despl",
+            Key::UndoHotkey => "Deshacer (Ctrl+Backspace)",
+            Key::EditConfiguration => "Editar configuración",
+            Key::Exit => "Salir",
+            Key::ClipboardLinkShortened => "Enlace del portapapeles acortado",
+            Key::OriginalShortened => "Original: {}\nAcortado: {}",
+            Key::CopiedFromHistory => "Copiado del historial",
+            Key::ShortLinkCopied => "Enlace corto copiado al portapapeles:\n{}",
+            Key::ShorteningUndone => "Acortamiento deshecho",
+            Key::DeletedRestored => "Eliminado: {}\nRestaurado: {}",
+            Key::UndoComplete => "Deshacer completado: se restauró la URL original.",
+            Key::NoUndoPair => "Ctrl+Backspace: no hay ningún enlace disponible para deshacer.",
+            Key::Random => "Aleatorio",
+            Key::ShortenOnAll => "Acortar en todos",
+            Key::AppTitle => "Acortador de YOURLS",
+        },
+        _ => match key { // Fallback to English ("en")
+            Key::MonitorClipboard => "Monitor Clipboard",
+            Key::SelectServer => "Select Server",
+            Key::BypassMethods => "Bypass Methods",
+            Key::RecentLinks => "Recent Links",
+            Key::NoRecentLinks => "(no recent links)",
+            Key::DoubleCopy => "Double-Copy",
+            Key::ShiftKey => "Shift Key",
+            Key::ScrollLock => "Scroll Lock",
+            Key::UndoHotkey => "Undo Hotkey (Ctrl+Backspace)",
+            Key::EditConfiguration => "Edit Configuration",
+            Key::Exit => "Exit",
+            Key::ClipboardLinkShortened => "Clipboard Link Shortened",
+            Key::OriginalShortened => "Original: {}\nShortened: {}",
+            Key::CopiedFromHistory => "Copied from History",
+            Key::ShortLinkCopied => "Short link copied to clipboard:\n{}",
+            Key::ShorteningUndone => "Shortening Undone",
+            Key::DeletedRestored => "Deleted: {}\nRestored: {}",
+            Key::UndoComplete => "Undo complete: original URL restored to clipboard.",
+            Key::NoUndoPair => "Ctrl+Backspace: no undo pair available.",
+            Key::Random => "Random",
+            Key::ShortenOnAll => "Shorten on all",
+            Key::AppTitle => "YOURLS Shortener",
+        }
+    }
+}
+
+pub fn get_system_locale() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+        let mut buffer = [0u16; 85];
+        let len = unsafe { GetUserDefaultLocaleName(buffer.as_mut_ptr(), buffer.len() as i32) };
+        if len > 0 {
+            if let Ok(name) = String::from_utf16(&buffer[..len as usize - 1]) {
+                return name.split('-').next().unwrap_or("en").to_lowercase();
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(lang) = std::env::var("LANG") {
+            return lang.split('.').next().unwrap_or("en").split('_').next().unwrap_or("en").to_lowercase();
+        }
+    }
+    "en".to_string()
+}
+
+pub fn get_locale(locale_config: &str) -> String {
+    if locale_config == "auto" {
+        get_system_locale()
+    } else {
+        locale_config.to_string()
+    }
+}

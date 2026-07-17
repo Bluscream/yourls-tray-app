@@ -3,14 +3,22 @@ use std::fs;
 use std::path::PathBuf;
 use url::Url;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Config {
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct ServerConfig {
+    #[serde(default)]
+    pub name: String,
     #[serde(default)]
     pub base_url: String,
     #[serde(default)]
     pub api_url: String,
     #[serde(default)]
     pub signature: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Config {
+
+
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
@@ -21,23 +29,46 @@ pub struct Config {
     pub bypass_shift_key: bool,
     #[serde(default = "default_true")]
     pub bypass_scroll_lock: bool,
+    #[serde(default = "default_true")]
+    pub enable_undo: bool,
+
+    // New multi-server fields
+    #[serde(default)]
+    pub servers: Vec<ServerConfig>,
+    #[serde(default = "default_selected_server")]
+    pub selected_server: String,
+    #[serde(default)]
+    pub shorten_on_all: bool,
+    #[serde(default = "default_locale")]
+    pub locale: String,
 }
 
 fn default_true() -> bool {
     true
 }
 
+fn default_selected_server() -> String {
+    "Random".to_string()
+}
+
+fn default_locale() -> String {
+    "auto".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            base_url: String::new(),
-            api_url: String::new(),
-            signature: String::new(),
+
             enabled: true,
             blacklist_regex: String::new(),
             bypass_double_copy: true,
             bypass_shift_key: true,
             bypass_scroll_lock: true,
+            enable_undo: true,
+            servers: Vec::new(),
+            selected_server: "Random".to_string(),
+            shorten_on_all: false,
+            locale: "auto".to_string(),
         }
     }
 }
@@ -86,37 +117,57 @@ pub fn load_config() -> Config {
         Config::default()
     };
 
-    // Inference logic
-    // 1. If base_url is empty but api_url is set, infer base_url
-    if config.base_url.trim().is_empty() && !config.api_url.trim().is_empty() {
-        if let Ok(mut url) = Url::parse(&config.api_url) {
-            let mut path_segments: Vec<&str> = url.path_segments().map(|s| s.collect()).unwrap_or_default();
-            if !path_segments.is_empty() && path_segments.last() == Some(&"yourls-api.php") {
-                path_segments.pop();
+
+
+    // Run inference for each server
+    for server in &mut config.servers {
+        // 1. If base_url is empty but api_url is set, infer base_url
+        if server.base_url.trim().is_empty() && !server.api_url.trim().is_empty() {
+            if let Ok(mut url) = Url::parse(&server.api_url) {
+                let mut path_segments: Vec<&str> = url.path_segments().map(|s| s.collect()).unwrap_or_default();
+                if !path_segments.is_empty() && path_segments.last() == Some(&"yourls-api.php") {
+                    path_segments.pop();
+                }
+                let new_path = path_segments.join("/");
+                if new_path.is_empty() {
+                    url.set_path("/");
+                } else {
+                    url.set_path(&format!("{}/", new_path));
+                }
+                url.set_query(None);
+                url.set_fragment(None);
+                server.base_url = url.to_string();
             }
-            let new_path = path_segments.join("/");
-            if new_path.is_empty() {
-                url.set_path("/");
+        }
+        // 2. If api_url is empty but base_url is set, infer api_url
+        else if server.api_url.trim().is_empty() && !server.base_url.trim().is_empty() {
+            if let Ok(mut url) = Url::parse(&server.base_url) {
+                let current_path = url.path().trim_end_matches('/');
+                url.set_path(&format!("{}/yourls-api.php", current_path));
+                url.set_query(None);
+                url.set_fragment(None);
+                server.api_url = url.to_string();
+            }
+        }
+
+        // 3. If server name is missing, extract domain from base_url or api_url
+        if server.name.trim().is_empty() {
+            let target_url = if !server.base_url.trim().is_empty() {
+                &server.base_url
             } else {
-                url.set_path(&format!("{}/", new_path));
+                &server.api_url
+            };
+            if let Ok(url) = Url::parse(target_url) {
+                if let Some(domain) = url.domain() {
+                    server.name = domain.to_string();
+                } else {
+                    server.name = "Unknown".to_string();
+                }
+            } else {
+                server.name = "Unknown".to_string();
             }
-            url.set_query(None);
-            url.set_fragment(None);
-            config.base_url = url.to_string();
         }
     }
-    // 2. If api_url is empty but base_url is set, infer api_url
-    else if config.api_url.trim().is_empty() && !config.base_url.trim().is_empty() {
-        if let Ok(mut url) = Url::parse(&config.base_url) {
-            let current_path = url.path().trim_end_matches('/');
-            url.set_path(&format!("{}/yourls-api.php", current_path));
-            url.set_query(None);
-            url.set_fragment(None);
-            config.api_url = url.to_string();
-        }
-    }
-
-
 
     config
 }
