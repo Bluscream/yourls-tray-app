@@ -45,9 +45,9 @@ function InvokeWsl([string]$Cmd) {
 
 function Get-AssetShield([hashtable]$Asset, [string]$Tag) {
     $fileName = $Asset.FileName
-    $label = $Asset.Label
+    $label = [uri]::EscapeDataString($Asset.Description)
     $url = "${BadgeBase}/${Tag}/${fileName}?${BadgeStyle}&label=${label}"
-    return "[![]($url)](https://github.com/${Repo}/releases/tag/${Tag})"
+    return "[![]($url)](https://github.com/${Repo}/releases/download/${Tag}/${fileName})"
 }
 
 function Get-TotalShield {
@@ -55,11 +55,7 @@ function Get-TotalShield {
 }
 
 function Get-AssetLine([hashtable]$Asset, [string]$Tag) {
-    $shield = Get-AssetShield $Asset $Tag
-    $fileName = $Asset.FileName
-    $description = $Asset.Description
-    # Constructing markdown line without using double backticks inside double quotes
-    return "*   ```$fileName``` - $description  $shield"
+    return "* $(Get-AssetShield $Asset $Tag)"
 }
 
 function Build-ReleaseNotes([string]$Tag, [string]$ChangeLog) {
@@ -176,35 +172,7 @@ if ($wslList -notmatch "Alpine") {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Install Linux build dependencies
-# ─────────────────────────────────────────────────────────────────────────────
-
-Step "Installing Linux build dependencies in WSL Alpine..."
-InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz glib-static cairo-static libx11-static libx11-dev"
-
-Step "Setting up i686-linux-musl cross-toolchain..."
-# Download from Bootlin verified mirror for i686 musl toolchain
-$setupToolchain = @'
-if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
-  echo "Downloading i686-linux-musl toolchain from Bootlin..."
-  curl -L -o /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2025.08-1.tar.xz
-  tar -xf /tmp/tc.tar.xz -C /opt
-fi
-# Recreate symlinks to ensure they are correct
-rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
-echo "i686-linux-musl toolchain setup completed."
-# Make sure rustup is fully configured for minimal profile
-if [ ! -f /root/.cargo/bin/rustc ]; then
-  rm -rf /root/.rustup /root/.cargo
-  rustup-init -y --default-toolchain stable -t i686-unknown-linux-musl --profile minimal
-fi
-'@.Replace("`r`n", "`n")
-wsl -d $WslDistro sh -c $setupToolchain.Replace("'", "'\''")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 6. Sync workspace source and build scripts to WSL
+# 5. Sync workspace source and build scripts to WSL
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Syncing workspace to WSL native filesystem..."
@@ -213,18 +181,15 @@ InvokeWsl "rm -rf $WslRepo/src"
 InvokeWsl "cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
 InvokeWsl "cp '$WslSrc/tools/update.sh' $WslRepo/update.sh && chmod +x $WslRepo/update.sh"
 
-Step "Writing Cargo cross-compilation config..."
-InvokeWsl "mkdir -p $WslRepo/.cargo && printf '[target.i686-unknown-linux-musl]\nlinker = \"i686-linux-musl-gcc\"\n' > $WslRepo/.cargo/config.toml"
-
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. Execute compile & packaging steps via update.sh inside WSL
+# 6. Execute compile & packaging steps via update.sh inside WSL
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Running Linux builds and packaging inside WSL..."
 InvokeWsl "cd $WslRepo && ./update.sh"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. Copy binaries back to Windows host
+# 7. Copy binaries back to Windows host
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Copying compiled Linux binaries back to host..."

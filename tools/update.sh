@@ -7,11 +7,30 @@ export PATH="/root/.cargo/bin:/usr/local/bin:$PATH"
 
 echo "=== WSL: Initializing toolchain and multiarch dependencies ==="
 
-# Alpine does not have native multiarch. Instead, to build 32-bit (i686) binaries with GTK
-# dependencies, we must compile them using the native i686 musl environment via chroot, 
-# or download pre-compiled i686 development libraries. 
-# Alternatively, since we have the i686-linux-musl toolchain, we can tell pkg-config 
-# to allow cross compiling and fallback to system libraries where ABI matches.
+# We install rustup to manage the toolchain, but we do NOT install alpine's system rust/cargo package because they conflict.
+# Note: These are executed inside WSL, so we use native Linux packages.
+apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz glib-static cairo-static libx11-static libx11-dev
+
+# Setup i686 cross-toolchain from Bootlin mirror
+if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
+  echo "Downloading i686-linux-musl toolchain from Bootlin..."
+  curl -L -o /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2025.08-1.tar.xz
+  tar -xf /tmp/tc.tar.xz -C /opt
+fi
+
+# Force recreate clean native Linux symlinks inside ext4 (/usr/local/bin) pointing to /opt
+rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
+echo "i686-linux-musl toolchain setup completed."
+
+# Make sure rustup is fully configured for minimal profile
+if [ ! -f /root/.cargo/bin/rustc ]; then
+  rm -rf /root/.rustup /root/.cargo
+  rustup-init -y --default-toolchain stable -t i686-unknown-linux-musl --profile minimal
+fi
+
+# Allow cross-compiling lookup for pkgconfig fallback where applicable
 export PKG_CONFIG_ALLOW_CROSS=1
 
 # Compile Linux x64 binary
@@ -21,8 +40,6 @@ RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=20 cargo build --rele
 
 # Compile Linux i686 binary
 echo "=== WSL: Compiling Linux i686 binary ==="
-# We must point cargo to use the correct i686 linker, and use pkg-config to locate i686 libraries
-# Alpine standard paths for i686 (if installed via lib32 compatibility packages)
 export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/share/pkgconfig"
 rustup target add i686-unknown-linux-musl || true
 RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl
