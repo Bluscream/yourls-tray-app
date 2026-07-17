@@ -10,7 +10,8 @@ $ErrorActionPreference = "Stop"
 # ─────────────────────────────────────────────────────────────────────────────
 
 $Repo         = "Bluscream/yourls-tray-app"
-$WslDistro    = "Alpine"
+$WslDistroX64 = "Alpine"
+$WslDistroX86 = "Alpine32"
 $WslRepo      = "~/yourls-tray-app"
 $HostTarget   = "target\release"
 $WslTarget    = "/mnt/d/Projects/Visual Studio/source/repos/target/release"
@@ -40,7 +41,11 @@ function Step([string]$Msg) {
 }
 
 function InvokeWsl([string]$Cmd) {
-    wsl -d $WslDistro sh -c $Cmd
+    wsl -d $WslDistroX64 sh -c $Cmd
+}
+
+function InvokeWslDistro([string]$Distro, [string]$Cmd) {
+    wsl -d $Distro sh -c $Cmd
 }
 
 function Get-AssetShield([hashtable]$Asset, [string]$Tag) {
@@ -161,32 +166,47 @@ cargo build --release --target i686-pc-windows-msvc
 # 4. Ensure WSL Alpine is available
 # ─────────────────────────────────────────────────────────────────────────────
 
-Step "Verifying WSL Alpine Linux distribution..."
+Step "Verifying WSL Alpine Linux distributions (x64 and i686)..."
 $wslList = (wsl.exe -l -v | Out-String) -replace "\x00", ""
-if ($wslList -notmatch "Alpine") {
-    Write-Host "Alpine WSL distro not found - bootstrapping..." -ForegroundColor Yellow
-    $tarball = "$env:TEMP\alpine-minirootfs.tar.gz"
-    Invoke-WebRequest -Uri "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-minirootfs-3.24.0-x86_64.tar.gz" -OutFile $tarball -UseBasicParsing
+if ($wslList -notmatch "Alpine\s") {
+    Write-Host "Alpine x64 WSL distro not found - bootstrapping..." -ForegroundColor Yellow
+    $tarball64 = "$env:TEMP\alpine-minirootfs-64.tar.gz"
+    Invoke-WebRequest -Uri "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-minirootfs-3.24.0-x86_64.tar.gz" -OutFile $tarball64 -UseBasicParsing
     New-Item -ItemType Directory -Force -Path "C:\WSL\Alpine" | Out-Null
-    wsl --import Alpine C:\WSL\Alpine $tarball
+    wsl --import Alpine C:\WSL\Alpine $tarball64
+}
+if ($wslList -notmatch "Alpine32") {
+    Write-Host "Alpine32 (i686) WSL distro not found - bootstrapping..." -ForegroundColor Yellow
+    $tarball32 = "$env:TEMP\alpine-minirootfs-32.tar.gz"
+    # Download the official Alpine x86 (i686 / 32-bit) minirootfs release
+    Invoke-WebRequest -Uri "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86/alpine-minirootfs-3.24.0-x86.tar.gz" -OutFile $tarball32 -UseBasicParsing
+    New-Item -ItemType Directory -Force -Path "C:\WSL\Alpine32" | Out-Null
+    wsl --import Alpine32 C:\WSL\Alpine32 $tarball32
+}
+
+# Remove duplicate helper (defined in top helpers section)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Sync workspace source and build scripts to both WSL containers
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Syncing workspace to both WSL native filesystems..."
+foreach ($distro in @($WslDistroX64, $WslDistroX86)) {
+    InvokeWslDistro $distro "mkdir -p $WslRepo"
+    InvokeWslDistro $distro "rm -rf $WslRepo/src"
+    InvokeWslDistro $distro "cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
+    InvokeWslDistro $distro "cp '$WslSrc/tools/update.sh' $WslRepo/update.sh && chmod +x $WslRepo/update.sh"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Sync workspace source and build scripts to WSL
+# 6. Execute compile & packaging steps via update.sh inside WSL containers
 # ─────────────────────────────────────────────────────────────────────────────
 
-Step "Syncing workspace to WSL native filesystem..."
-InvokeWsl "mkdir -p $WslRepo"
-InvokeWsl "rm -rf $WslRepo/src"
-InvokeWsl "cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
-InvokeWsl "cp '$WslSrc/tools/update.sh' $WslRepo/update.sh && chmod +x $WslRepo/update.sh"
+Step "Running Linux builds and packaging natively inside WSL $WslDistroX64 (x64)..."
+InvokeWslDistro $WslDistroX64 "cd $WslRepo && ./update.sh"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 6. Execute compile & packaging steps via update.sh inside WSL
-# ─────────────────────────────────────────────────────────────────────────────
-
-Step "Running Linux builds and packaging inside WSL..."
-InvokeWsl "cd $WslRepo && ./update.sh"
+Step "Running Linux builds and packaging natively inside WSL $WslDistroX86 (i686)..."
+InvokeWslDistro $WslDistroX86 "cd $WslRepo && ./update.sh"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. Copy binaries back to Windows host
@@ -194,10 +214,10 @@ InvokeWsl "cd $WslRepo && ./update.sh"
 
 Step "Copying compiled Linux binaries back to host..."
 New-Item -ItemType Directory -Force -Path $HostTarget | Out-Null
-InvokeWsl "cp ~/yourls-tray-app/target/release/yourls-tray-app                           '$WslTarget/yourls-tray-app_lin64-release'"
-InvokeWsl "cp ~/yourls-tray-app/yourls-tray-app-x86_64.AppImage                          '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
-InvokeWsl "cp ~/yourls-tray-app/target/i686-unknown-linux-musl/release/yourls-tray-app   '$WslTarget/yourls-tray-app_lin32-release'"
-InvokeWsl "cp ~/yourls-tray-app/yourls-tray-app-i686.AppImage                            '$WslTarget/yourls-tray-app_lin32-release.AppImage'"
+InvokeWslDistro $WslDistroX64 "cp ~/yourls-tray-app/target/release/yourls-tray-app              '$WslTarget/yourls-tray-app_lin64-release'"
+InvokeWslDistro $WslDistroX64 "cp ~/yourls-tray-app/yourls-tray-app-x86_64.AppImage             '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
+InvokeWslDistro $WslDistroX86 "cp ~/yourls-tray-app/target/release/yourls-tray-app              '$WslTarget/yourls-tray-app_lin32-release'"
+InvokeWslDistro $WslDistroX86 "cp ~/yourls-tray-app/yourls-tray-app-i686.AppImage               '$WslTarget/yourls-tray-app_lin32-release.AppImage'"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. Rename Windows binaries
