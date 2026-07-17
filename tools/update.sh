@@ -17,23 +17,23 @@ if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
   tar -xf /tmp/tc.tar.xz -C /opt
 fi
 
-# Remove old compiler symlinks from /usr/local/bin to avoid search boundary issues
-rm -f /usr/local/bin/i686-linux-gcc /usr/local/bin/i686-linux-g++
+# Install patchelf package to modify binary dependencies list
+apk add patchelf
 
-# Create native compiler wrappers pointing to the absolute path of the Bootlin compilers in /opt
-cat << 'EOF' > /usr/local/bin/i686-linux-musl-gcc
-#!/bin/sh
-export LD_PRELOAD="/usr/lib/libobstack.so.1"
-exec /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc "$@"
-EOF
-chmod +x /usr/local/bin/i686-linux-musl-gcc
+# Ensure Alpine can run the Bootlin binaries by patching the dynamic link interpreters to native musl
+patchelf --set-interpreter /lib/ld-musl-x86_64.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/toolchain-wrapper || true
+patchelf --set-interpreter /lib/ld-musl-x86_64.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-gcc.br_real || true
+patchelf --set-interpreter /lib/ld-musl-x86_64.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-g++.br_real || true
 
-cat << 'EOF' > /usr/local/bin/i686-linux-musl-g++
-#!/bin/sh
-export LD_PRELOAD="/usr/lib/libobstack.so.1"
-exec /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ "$@"
-EOF
-chmod +x /usr/local/bin/i686-linux-musl-g++
+# Add libobstack.so.1 natively to dynamic dependencies lists
+patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/toolchain-wrapper || true
+patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-gcc.br_real || true
+patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-g++.br_real || true
+
+# Link i686-linux-musl-gcc and i686-linux-musl-g++ symlinks directly so Cargo can call them by their expected names
+rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-gcc /usr/local/bin/i686-linux-g++
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
 
 # Make sure rustup is fully configured for minimal profile
 if [ ! -f /root/.cargo/bin/rustc ]; then
