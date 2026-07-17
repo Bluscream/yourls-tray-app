@@ -1,0 +1,13 @@
+Main started
+Loading config...
+Main: hwnd = 0x9e0b08
+create_hicon_from_ico_bytes: count = 1, bytes_in_res = 637, image_offset = 22
+create_hicon_from_ico_bytes: count = 1, bytes_in_res = 614, image_offset = 22
+Main: hicon_active = 0x1e4019d, hicon_disabled = 0x1cf05bd
+Entering message loop
+Monitor thread spawnedhing initial history...
+
+GetMessageW returned 1
+wnd_proc: WM_CREATE_TRAY received with wparam = 1, registering tray icon...
+add_tray_icon: Shell_NotifyIconW returned 0
+Clipboard Master starting run loop
