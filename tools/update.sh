@@ -3,7 +3,7 @@ set -e
 
 # WSL Repo Paths
 WSL_REPO="/root/yourls-tray-app"
-export PATH="/root/.cargo/bin:$PATH"
+export PATH="/root/.cargo/bin:/usr/local/bin:$PATH"
 
 echo "=== WSL: Initializing toolchain and multiarch dependencies ==="
 

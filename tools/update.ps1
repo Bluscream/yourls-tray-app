@@ -189,13 +189,12 @@ if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
   echo "Downloading i686-linux-musl toolchain from Bootlin..."
   curl -L -o /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2025.08-1.tar.xz
   tar -xf /tmp/tc.tar.xz -C /opt
-  # Symlink compilers
-  ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
-  ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
-  echo "i686-linux-musl toolchain setup completed."
-else
-  echo "i686-linux-musl toolchain already installed."
 fi
+# Recreate symlinks to ensure they are correct
+rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
+echo "i686-linux-musl toolchain setup completed."
 # Make sure rustup is fully configured for minimal profile
 if [ ! -f /root/.cargo/bin/rustc ]; then
   rm -rf /root/.rustup /root/.cargo
