@@ -31,10 +31,8 @@ gcc -m32 -shared -fPIC -nostdlib /tmp/obstack_compat.c -o /usr/lib/libobstack_co
 # Add Bootlin toolchain directory to execution PATH so it takes priority
 export PATH="/opt/x86-i686--musl--stable-2025.08-1/bin:$PATH"
 
-# Link i686-linux-musl-gcc and i686-linux-musl-g++ symlinks directly inside /usr/local/bin
+# Clean up any conflicting symlinks inside /usr/local/bin
 rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-gcc /usr/local/bin/i686-linux-g++
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
 
 # Preload both compat architectures globally
 export LD_PRELOAD="/usr/lib/libobstack_compat.so:/usr/lib/libobstack_compat_32.so"
@@ -45,13 +43,16 @@ if [ ! -f /root/.cargo/bin/rustc ]; then
   rustup-init -y --default-toolchain stable -t i686-unknown-linux-musl --profile minimal
 fi
 
-# Write cargo config targeting i686-linux-musl-gcc wrapper
+# Write cargo config targeting the absolute Bootlin linker binary path directly
 mkdir -p "$WSL_REPO/.cargo"
 cat << 'EOF' > "$WSL_REPO/.cargo/config.toml"
 [target.i686-unknown-linux-musl]
-linker = "i686-linux-musl-gcc"
+linker = "/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc"
 EOF
 
+# Set C-compiler environment paths for cargo compilation dependencies (like ring) to use the correct target architecture
+export CC="/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc"
+export CXX="/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++"
 export PKG_CONFIG_ALLOW_CROSS=1
 
 # Compile Linux x64 binary
