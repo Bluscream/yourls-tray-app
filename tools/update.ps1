@@ -180,7 +180,7 @@ if ($wslList -notmatch "Alpine") {
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Installing Linux build dependencies in WSL Alpine..."
-InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz"
+InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz glib-static cairo-static libx11-static libx11-dev"
 
 Step "Setting up i686-linux-musl cross-toolchain..."
 # Download from Bootlin verified mirror for i686 musl toolchain
