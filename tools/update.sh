@@ -17,23 +17,21 @@ if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
   tar -xf /tmp/tc.tar.xz -C /opt
 fi
 
-# Recreate compiler symlinks natively in ext4 pointing directly to the Bootlin wrapper names
+# Remove old compiler symlinks from /usr/local/bin to avoid search boundary issues
 rm -f /usr/local/bin/i686-linux-gcc /usr/local/bin/i686-linux-g++
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-gcc
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-g++
 
-# Create native compiler wrappers that pass unmodified argv[0] name matching to the toolchain-wrapper
+# Create native compiler wrappers pointing to the absolute path of the Bootlin compilers in /opt
 cat << 'EOF' > /usr/local/bin/i686-linux-musl-gcc
 #!/bin/sh
 export LD_PRELOAD="/usr/lib/libobstack.so.1"
-exec /usr/local/bin/i686-linux-gcc "$@"
+exec /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc "$@"
 EOF
 chmod +x /usr/local/bin/i686-linux-musl-gcc
 
 cat << 'EOF' > /usr/local/bin/i686-linux-musl-g++
 #!/bin/sh
 export LD_PRELOAD="/usr/lib/libobstack.so.1"
-exec /usr/local/bin/i686-linux-g++ "$@"
+exec /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ "$@"
 EOF
 chmod +x /usr/local/bin/i686-linux-musl-g++
 
