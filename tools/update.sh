@@ -17,7 +17,7 @@ export PKG_CONFIG_ALLOW_CROSS=1
 # Compile Linux x64 binary
 echo "=== WSL: Compiling Linux x64 binary ==="
 cd "$WSL_REPO"
-CARGO_BUILD_JOBS=20 cargo build --release
+RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=20 cargo build --release
 
 # Compile Linux i686 binary
 echo "=== WSL: Compiling Linux i686 binary ==="
@@ -25,7 +25,7 @@ echo "=== WSL: Compiling Linux i686 binary ==="
 # Alpine standard paths for i686 (if installed via lib32 compatibility packages)
 export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/share/pkgconfig"
 rustup target add i686-unknown-linux-musl || true
-CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl
+RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl
 
 # Package Linux x64 AppImage
 echo "=== WSL: Packaging Linux x64 AppImage ==="
