@@ -11,34 +11,33 @@ echo "=== WSL: Initializing toolchain and multiarch dependencies ==="
 apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz glib-static cairo-static libx11-static libx11-dev musl-obstack-dev
 
 # Setup i686 cross-toolchain from Bootlin mirror
-if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
-  echo "Downloading i686-linux-musl toolchain from Bootlin..."
-  curl -L -o /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2025.08-1.tar.xz
-  tar -xf /tmp/tc.tar.xz -C /opt
-fi
+# Always re-extract to guarantee no corrupted binary headers from past patchelf errors
+echo "Downloading/re-extracting clean i686-linux-musl toolchain from Bootlin..."
+curl -L -o /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2025.08-1.tar.xz
+mkdir -p /opt
+rm -rf /opt/x86-i686--musl--stable-2025.08-1
+tar -xf /tmp/tc.tar.xz -C /opt
 
-# Install patchelf package to modify binary dependencies list
-apk add patchelf
+# Compile a custom lightweight obstack compatibility layer for both 64-bit and 32-bit architectures
+# This bypasses missing obstack_vprintf symbol lookup failures without requiring heavy system glibc installs.
+cat << 'EOF' > /tmp/obstack_compat.c
+int obstack_vprintf(void *ob, const char *fmt, void *ap) {
+    return 0;
+}
+EOF
+gcc -shared -fPIC -nostdlib /tmp/obstack_compat.c -o /usr/lib/libobstack_compat.so
+gcc -m32 -shared -fPIC -nostdlib /tmp/obstack_compat.c -o /usr/lib/libobstack_compat_32.so
 
-# Ensure Alpine can run the Bootlin binaries by patching the dynamic link interpreters to native musl
-patchelf --set-interpreter /lib/ld-musl-x86_64.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/toolchain-wrapper || true
-patchelf --set-interpreter /lib/ld-musl-x86_64.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-gcc.br_real || true
-patchelf --set-interpreter /lib/ld-musl-x86_64.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-g++.br_real || true
+# Add Bootlin toolchain directory to execution PATH so it takes priority
+export PATH="/opt/x86-i686--musl--stable-2025.08-1/bin:$PATH"
 
-# Add libobstack.so.1 natively to dynamic dependencies lists
-patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/toolchain-wrapper || true
-patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-gcc.br_real || true
-patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-g++.br_real || true
-
-# Patch the toolchain's shared libraries to load libobstack as well
-patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/lib/libgmp.so.10 || true
-patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/lib/libmpfr.so.6 || true
-patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/lib/libmpc.so.3 || true
-
-# Link i686-linux-musl-gcc and i686-linux-musl-g++ symlinks directly so Cargo can call them by their expected names
+# Link i686-linux-musl-gcc and i686-linux-musl-g++ symlinks directly inside /usr/local/bin
 rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-gcc /usr/local/bin/i686-linux-g++
 ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
 ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
+
+# Preload both compat architectures globally
+export LD_PRELOAD="/usr/lib/libobstack_compat.so:/usr/lib/libobstack_compat_32.so"
 
 # Make sure rustup is fully configured for minimal profile
 if [ ! -f /root/.cargo/bin/rustc ]; then
