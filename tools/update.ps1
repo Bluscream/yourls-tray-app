@@ -184,14 +184,15 @@ Step "Installing Linux build dependencies in WSL Alpine..."
 InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz"
 
 Step "Setting up i686-linux-musl cross-toolchain..."
-# Download from github release fallback of musl-cross if musl.cc fails or resolves slowly.
+# Download from Bootlin verified mirror for i686 musl toolchain
 $setupToolchain = @'
 if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
-  echo "Downloading i686-linux-musl cross-toolchain..."
-  curl -L -o /tmp/tc.tgz https://github.com/musl-cross/musl-cross/releases/download/v1.2.4/i686-linux-musl-cross.tgz || curl -L -o /tmp/tc.tgz https://musl.cc/i686-linux-musl-cross.tgz
-  tar -xzf /tmp/tc.tgz -C /opt
-  ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-gcc
-  ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-musl-g++
+  echo "Downloading i686-linux-musl toolchain from Bootlin..."
+  curl -L -o /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2025.08-1.tar.xz
+  tar -xf /tmp/tc.tar.xz -C /opt
+  # Symlink compilers
+  ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
+  ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
   echo "i686-linux-musl toolchain setup completed."
 else
   echo "i686-linux-musl toolchain already installed."
@@ -260,8 +261,8 @@ Step "Creating Git commit and tag $Tag..."
 git add .
 git commit -m $CommitMessage
 git push origin main
-git tag $Tag
-git push origin $Tag
+git tag -f $Tag
+git push -f origin $Tag
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 12. Publish GitHub Release
