@@ -203,7 +203,7 @@ if [ ! -f /root/.cargo/bin/rustc ]; then
   rustup-init -y --default-toolchain stable -t i686-unknown-linux-musl --profile minimal
 fi
 '@.Replace("`r`n", "`n")
-wsl -d $WslDistro sh -c $setupToolchain
+wsl -d $WslDistro sh -c $setupToolchain.Replace("'", "'\''")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Sync source to WSL and write Cargo cross-compile config
@@ -213,17 +213,17 @@ Step "Syncing workspace to WSL native filesystem..."
 InvokeWsl "mkdir -p $WslRepo && rm -rf $WslRepo/src && cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
 
 Step "Writing Cargo cross-compilation config..."
-InvokeWsl "mkdir -p $WslRepo/.cargo && printf '[target.i686-unknown-linux-musl]\nlinker = \`"i686-linux-musl-gcc\`"\n' > $WslRepo/.cargo/config.toml"
+InvokeWsl "mkdir -p $WslRepo/.cargo && printf '[target.i686-unknown-linux-musl]\nlinker = \"i686-linux-musl-gcc\"\n' > $WslRepo/.cargo/config.toml"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. Compile Linux binaries in WSL
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Compiling Linux x64 binary..."
-InvokeWsl 'export PATH=/root/.cargo/bin:$PATH && cd ~/yourls-tray-app && CARGO_BUILD_JOBS=20 cargo build --release'
+InvokeWsl 'export PATH=/root/.cargo/bin:\$PATH && cd ~/yourls-tray-app && CARGO_BUILD_JOBS=20 cargo build --release'
 
 Step "Compiling Linux i686 (32-bit) binary..."
-InvokeWsl 'export PATH=/root/.cargo/bin:$PATH && cd ~/yourls-tray-app && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl'
+InvokeWsl 'export PATH=/root/.cargo/bin:\$PATH && cd ~/yourls-tray-app && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Package AppImages in WSL
