@@ -2,11 +2,8 @@
 set -e
 
 WSL_REPO="/root/yourls-tray-app"
-export PATH="/root/.cargo/bin:/usr/local/bin:$PATH"
 
-ARCH="$(uname -m)"  # x86_64 or i686
-
-echo "=== WSL: Initializing dependencies (arch: $ARCH) ==="
+echo "=== WSL: Initializing dependencies ==="
 
 apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz
 
@@ -16,12 +13,17 @@ if [ ! -f /root/.cargo/bin/rustc ]; then
   rustup-init -y --default-toolchain stable --profile minimal
 fi
 
-# Clean per-arch cargo config (no cross targets)
-rm -f "$WSL_REPO/.cargo/config.toml"
+# Always source the cargo env to make cargo available
+. "$HOME/.cargo/env"
+export PATH="$HOME/.cargo/bin:$PATH"
 
 export PKG_CONFIG_ALLOW_CROSS=0
 
-# Compile natively for this architecture
+# Remove stale cross-compilation cargo config if present
+rm -f "$WSL_REPO/.cargo/config.toml"
+
+ARCH="$(uname -m)"
+
 echo "=== WSL: Compiling native binary ($ARCH) ==="
 cd "$WSL_REPO"
 RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=5 cargo build --release
