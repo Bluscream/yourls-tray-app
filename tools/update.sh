@@ -30,6 +30,11 @@ patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.
 patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-gcc.br_real || true
 patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/bin/i686-buildroot-linux-musl-g++.br_real || true
 
+# Patch the toolchain's shared libraries to load libobstack as well
+patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/lib/libgmp.so.10 || true
+patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/lib/libmpfr.so.6 || true
+patchelf --add-needed /usr/lib/libobstack.so.1 /opt/x86-i686--musl--stable-2025.08-1/lib/libmpc.so.3 || true
+
 # Link i686-linux-musl-gcc and i686-linux-musl-g++ symlinks directly so Cargo can call them by their expected names
 rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-gcc /usr/local/bin/i686-linux-g++
 ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
