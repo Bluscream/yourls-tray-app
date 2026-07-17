@@ -17,10 +17,25 @@ if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
   tar -xf /tmp/tc.tar.xz -C /opt
 fi
 
-# Recreate compiler symlinks natively in ext4
-rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
+# Recreate compiler symlinks natively in ext4 pointing directly to the Bootlin wrapper names
+rm -f /usr/local/bin/i686-linux-gcc /usr/local/bin/i686-linux-g++
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-gcc
+ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-g++
+
+# Create native compiler wrappers that pass unmodified argv[0] name matching to the toolchain-wrapper
+cat << 'EOF' > /usr/local/bin/i686-linux-musl-gcc
+#!/bin/sh
+export LD_PRELOAD="/usr/lib/libobstack.so.1"
+exec /usr/local/bin/i686-linux-gcc "$@"
+EOF
+chmod +x /usr/local/bin/i686-linux-musl-gcc
+
+cat << 'EOF' > /usr/local/bin/i686-linux-musl-g++
+#!/bin/sh
+export LD_PRELOAD="/usr/lib/libobstack.so.1"
+exec /usr/local/bin/i686-linux-g++ "$@"
+EOF
+chmod +x /usr/local/bin/i686-linux-musl-g++
 
 # Make sure rustup is fully configured for minimal profile
 if [ ! -f /root/.cargo/bin/rustc ]; then
@@ -28,27 +43,25 @@ if [ ! -f /root/.cargo/bin/rustc ]; then
   rustup-init -y --default-toolchain stable -t i686-unknown-linux-musl --profile minimal
 fi
 
-# Write cargo config targeting i686-linux-musl-gcc
+# Write cargo config targeting i686-linux-musl-gcc wrapper
 mkdir -p "$WSL_REPO/.cargo"
 cat << 'EOF' > "$WSL_REPO/.cargo/config.toml"
 [target.i686-unknown-linux-musl]
 linker = "i686-linux-musl-gcc"
 EOF
 
-# Preload libobstack.so to resolve obstack_vprintf missing symbol on glibc-based Bootlin binary execution
-export LD_PRELOAD="/usr/lib/libobstack.so.1"
 export PKG_CONFIG_ALLOW_CROSS=1
 
 # Compile Linux x64 binary
 echo "=== WSL: Compiling Linux x64 binary ==="
 cd "$WSL_REPO"
-RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=20 cargo build --release
+RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=5 cargo build --release
 
 # Compile Linux i686 binary
 echo "=== WSL: Compiling Linux i686 binary ==="
 export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/share/pkgconfig"
 rustup target add i686-unknown-linux-musl || true
-RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl
+RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=5 cargo build --release --target i686-unknown-linux-musl
 
 # Package Linux x64 AppImage
 echo "=== WSL: Packaging Linux x64 AppImage ==="
