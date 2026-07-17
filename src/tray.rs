@@ -76,12 +76,17 @@ pub fn build_tray_menu(
     CheckMenuItem,
     std::collections::HashMap<MenuId, String>,
     CheckMenuItem,
+    MenuItem,
+    MenuItem,
 ) {
     let resolved_locale = i18n::get_locale(locale);
     let menu = Menu::new();
-    let item_title = MenuItem::new(i18n::t(i18n::Key::AppTitle, &resolved_locale), false, None);
+    let current_version = env!("CARGO_PKG_VERSION");
+    let title_text = format!("{} v{}", i18n::t(i18n::Key::AppTitle, &resolved_locale), current_version);
+    let item_title = MenuItem::new(&title_text, true, None);
     let item_enabled = CheckMenuItem::new(i18n::t(i18n::Key::MonitorClipboard, &resolved_locale), true, enabled, None);
     let item_edit_config = MenuItem::new(i18n::t(i18n::Key::EditConfiguration, &resolved_locale), true, None);
+    let item_check_update = MenuItem::new(i18n::t(i18n::Key::CheckForUpdates, &resolved_locale), true, None);
     let item_exit = MenuItem::new(i18n::t(i18n::Key::Exit, &resolved_locale), true, None);
 
     let select_server_submenu = Submenu::new(i18n::t(i18n::Key::SelectServer, &resolved_locale), true);
@@ -138,6 +143,7 @@ pub fn build_tray_menu(
         &bypasses_submenu,
         &history_submenu,
         &PredefinedMenuItem::separator(),
+        &item_check_update,
         &item_exit,
     ])
     .unwrap();
@@ -155,6 +161,8 @@ pub fn build_tray_menu(
         item_random,
         server_item_ids,
         item_shorten_all,
+        item_check_update,
+        item_title,
     )
 }
 
@@ -173,9 +181,29 @@ pub fn handle_events(
     item_random: &mut CheckMenuItem,
     server_item_ids: &mut std::collections::HashMap<MenuId, String>,
     item_shorten_all: &mut CheckMenuItem,
+    item_check_update: &mut MenuItem,
+    item_title: &mut MenuItem,
 ) {
     while let Ok(event) = MenuEvent::receiver().try_recv() {
-        if event.id == item_enabled.id() {
+        if event.id == item_title.id() {
+            log_debug("Menu event: clicked title - opening GitHub repo");
+            let locale = {
+                let s = state.lock().unwrap();
+                s.config.locale.clone()
+            };
+            let resolved = i18n::get_locale(&locale);
+            let repo_url = format!("https://github.com/{}/{}",
+                i18n::t(i18n::Key::GithubUser, &resolved),
+                i18n::t(i18n::Key::GithubRepo, &resolved));
+            crate::update::open_repo(&repo_url);
+        } else if event.id == item_check_update.id() {
+            log_debug("Menu event: clicked check for updates");
+            let locale = {
+                let s = state.lock().unwrap();
+                s.config.locale.clone()
+            };
+            crate::update::check_for_updates(locale, true);
+        } else if event.id == item_enabled.id() {
             let checked = item_enabled.is_checked();
             log_debug(&format!("Menu event: toggled enabled check state to {}", checked));
             let mut s = state.lock().unwrap();
@@ -333,6 +361,8 @@ pub fn handle_events(
             new_random,
             new_server_item_ids,
             new_shorten_all,
+            new_check_update,
+            new_title,
         ) = build_tray_menu(
             enabled,
             &history,
@@ -361,6 +391,8 @@ pub fn handle_events(
         *item_random = new_random;
         *server_item_ids = new_server_item_ids;
         *item_shorten_all = new_shorten_all;
+        *item_check_update = new_check_update;
+        *item_title = new_title;
     }
 }
 
@@ -379,6 +411,8 @@ pub fn run_event_loop(
     mut item_random: CheckMenuItem,
     mut server_item_ids: std::collections::HashMap<MenuId, String>,
     mut item_shorten_all: CheckMenuItem,
+    mut item_check_update: MenuItem,
+    mut item_title: MenuItem,
 ) {
     #[cfg(target_os = "windows")]
     {
@@ -432,6 +466,8 @@ pub fn run_event_loop(
                     &mut item_random,
                     &mut server_item_ids,
                     &mut item_shorten_all,
+                    &mut item_check_update,
+                    &mut item_title,
                 );
             }
         }
@@ -457,6 +493,8 @@ pub fn run_event_loop(
                 &mut item_random,
                 &mut server_item_ids,
                 &mut item_shorten_all,
+                &mut item_check_update,
+                &mut item_title,
             );
             glib::ControlFlow::Continue
         });

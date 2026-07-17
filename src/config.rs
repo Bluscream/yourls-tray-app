@@ -43,6 +43,8 @@ pub struct Config {
     pub locale: String,
     #[serde(default = "default_log_file_name")]
     pub log_file_name: String,
+    #[serde(default)]
+    pub check_update_on_startup: bool,
 }
 
 fn default_true() -> bool {
@@ -76,6 +78,7 @@ impl Default for Config {
             shorten_on_all: false,
             locale: "auto".to_string(),
             log_file_name: "yourls-tray-app.log".to_string(),
+            check_update_on_startup: false,
         }
     }
 }

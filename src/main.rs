@@ -6,6 +6,7 @@ mod api;
 mod clipboard;
 mod tray;
 mod i18n;
+mod update;
 
 use config::load_config;
 use common::{AppState, log_debug};
@@ -163,6 +164,8 @@ fn main() {
         item_random,
         server_item_ids,
         item_shorten_all,
+        item_check_update,
+        item_title,
     ) = build_tray_menu(
         config.enabled,
         &initial_history,
@@ -179,9 +182,10 @@ fn main() {
     log_debug("Initializing tray icon...");
     let mut tray_icon = None;
     for i in 0..5 {
+        let tooltip = i18n::t(i18n::Key::AppTooltip, &i18n::get_locale(&config.locale));
         match TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
-            .with_tooltip("YOURLS Clipboard Shortener")
+            .with_tooltip(tooltip)
             .with_icon(create_icon(config.enabled))
             .build()
         {
@@ -220,6 +224,14 @@ fn main() {
 
     spawn_undo_hotkey(state.clone());
 
+    let (check_on_startup, locale) = {
+        let s = state.lock().unwrap();
+        (s.config.check_update_on_startup, s.config.locale.clone())
+    };
+    if check_on_startup {
+        update::check_for_updates(locale, false);
+    }
+
     run_event_loop(
         state,
         tray_icon,
@@ -235,5 +247,7 @@ fn main() {
         item_random,
         server_item_ids,
         item_shorten_all,
+        item_check_update,
+        item_title,
     );
 }

@@ -149,33 +149,42 @@ Copy-Item -Path "target\i686-pc-windows-msvc\release\yourls-tray-app.exe" -Desti
 Write-Host "Creating GitHub Release v$Version..." -ForegroundColor Cyan
 $env:GITHUB_TOKEN=""
 
+$repo = "Bluscream/yourls-tray-app"
+$tagEncoded = "v$Version"
+$badgeBase = "https://img.shields.io/github/downloads/$repo"
+$badgeStyle = "style=flat-square"
+
+$shieldTotal  = "[![Downloads](${badgeBase}/total?${badgeStyle}`&label=total+downloads)](https://github.com/${repo}/releases)"
+$shieldWin64  = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_win64-release.exe?${badgeStyle}`&label=win64)](https://github.com/${repo}/releases/tag/${tagEncoded})"
+$shieldWin32  = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_win32-release.exe?${badgeStyle}`&label=win32)](https://github.com/${repo}/releases/tag/${tagEncoded})"
+$shieldLin64  = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_lin64-release?${badgeStyle}`&label=linux64)](https://github.com/${repo}/releases/tag/${tagEncoded})"
+$shieldAppImg = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_lin64-release.AppImage?${badgeStyle}`&label=AppImage)](https://github.com/${repo}/releases/tag/${tagEncoded})"
+
 $notes = @"
-### Release v$Version
+### Release v$Version  $shieldTotal
 
 $CommitMessage
 
-This release brings codebase modularization, multi-language internationalization (i18n) support, system language auto-detection, and customizable date-formatted logging filename patterns.
-
 #### Compiled Binaries:
-*   `yourls-tray-app_win64-release.exe`: Windows 64-bit Tray App (Release)
-*   `yourls-tray-app_win32-release.exe`: Windows 32-bit Tray App (Release)
-*   `yourls-tray-app_lin64-release`: Native Linux 64-bit Binary (statically linked with musl)
-*   `yourls-tray-app_lin64-release.AppImage`: Standalone Linux AppImage Package
+*   ``yourls-tray-app_win64-release.exe`` — Windows 64-bit  $shieldWin64
+*   ``yourls-tray-app_win32-release.exe`` — Windows 32-bit  $shieldWin32
+*   ``yourls-tray-app_lin64-release`` — Native Linux 64-bit (musl static)  $shieldLin64
+*   ``yourls-tray-app_lin64-release.AppImage`` — Standalone Linux AppImage  $shieldAppImg
 
 #### Linux Dependency Installation Notes
 To run the Linux binary natively, please ensure the following dependencies are installed on your system (depending on your distribution):
-* **Wayland Clipboard Support**: `wl-clipboard` (provides `wl-copy` and `wl-paste`)
-* **Keyboard Bypass Features**: `xdotool` (provides the `libxdo.so.4` shared library required for the Shift-key bypass)
+* **Wayland Clipboard Support**: ``wl-clipboard`` (provides ``wl-copy`` and ``wl-paste``)
+* **Keyboard Bypass Features**: ``xdotool`` (provides the ``libxdo.so.4`` shared library required for the Shift-key bypass)
 
 **Ubuntu / Debian (natively)**:
-```bash
+``````bash
 sudo apt install wl-clipboard xdotool
-```
+``````
 
 **Arch Linux (natively)**:
-```bash
+``````bash
 sudo pacman -S wl-clipboard xdotool
-```
+``````
 "@
 
 $notesFile = "$env:TEMP\release_notes_v$Version.md"
