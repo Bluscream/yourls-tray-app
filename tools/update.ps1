@@ -180,7 +180,7 @@ if ($wslList -notmatch "Alpine") {
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Installing Linux build dependencies in WSL Alpine..."
-# We install rustup to manage cross targets inside Alpine since system rustc doesn't support target addition easily.
+# We install rustup to manage the toolchain, but we do NOT install alpine's system rust/cargo package because they conflict.
 InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz"
 
 Step "Setting up i686-linux-musl cross-toolchain..."
@@ -196,6 +196,11 @@ if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
   echo "i686-linux-musl toolchain setup completed."
 else
   echo "i686-linux-musl toolchain already installed."
+fi
+# Make sure rustup is fully configured for minimal profile
+if [ ! -f /root/.cargo/bin/rustc ]; then
+  rm -rf /root/.rustup /root/.cargo
+  rustup-init -y --default-toolchain stable -t i686-unknown-linux-musl --profile minimal
 fi
 '@.Replace("`r`n", "`n")
 wsl -d $WslDistro sh -c $setupToolchain
@@ -215,10 +220,10 @@ InvokeWsl "mkdir -p $WslRepo/.cargo && printf '[target.i686-unknown-linux-musl]\
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Compiling Linux x64 binary..."
-InvokeWsl "cd $WslRepo && CARGO_BUILD_JOBS=20 cargo build --release"
+InvokeWsl "export PATH=/root/.cargo/bin:`$PATH && cd $WslRepo && CARGO_BUILD_JOBS=20 cargo build --release"
 
 Step "Compiling Linux i686 (32-bit) binary..."
-InvokeWsl "cd $WslRepo && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl"
+InvokeWsl "export PATH=/root/.cargo/bin:`$PATH && cd $WslRepo && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Package AppImages in WSL
