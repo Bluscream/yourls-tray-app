@@ -9,26 +9,20 @@ echo "=== WSL: Initializing toolchain and multiarch dependencies ==="
 
 # We install rustup to manage the toolchain, but we do NOT install alpine's system rust/cargo package because they conflict.
 # Note: These are executed inside WSL, so we use native Linux packages.
-apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz glib-static cairo-static libx11-static libx11-dev
-
-# Setup i686 cross-toolchain from Bootlin mirror
-if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
-  echo "Downloading i686-linux-musl toolchain from Bootlin..."
-  curl -L -o /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2025.08-1.tar.xz
-  tar -xf /tmp/tc.tar.xz -C /opt
-fi
-
-# Force recreate clean native Linux symlinks inside ext4 (/usr/local/bin) pointing to /opt
-rm -f /usr/local/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-g++
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc /usr/local/bin/i686-linux-musl-gcc
-ln -sf /opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++ /usr/local/bin/i686-linux-musl-g++
-echo "i686-linux-musl toolchain setup completed."
+apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz glib-static cairo-static libx11-static libx11-dev gcc-i386-elf
 
 # Make sure rustup is fully configured for minimal profile
 if [ ! -f /root/.cargo/bin/rustc ]; then
   rm -rf /root/.rustup /root/.cargo
   rustup-init -y --default-toolchain stable -t i686-unknown-linux-musl --profile minimal
 fi
+
+# Write cargo config with native linker mappings
+mkdir -p "$WSL_REPO/.cargo"
+cat << 'EOF' > "$WSL_REPO/.cargo/config.toml"
+[target.i686-unknown-linux-musl]
+linker = "i386-elf-gcc"
+EOF
 
 # Allow cross-compiling lookup for pkgconfig fallback where applicable
 export PKG_CONFIG_ALLOW_CROSS=1
