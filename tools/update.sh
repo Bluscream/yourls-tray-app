@@ -50,9 +50,9 @@ cat << 'EOF' > "$WSL_REPO/.cargo/config.toml"
 linker = "/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc"
 EOF
 
-# Set C-compiler environment paths for cargo compilation dependencies (like ring) to use the correct target architecture
-export CC="/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc"
-export CXX="/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++"
+# Set C-compiler environment paths targeting i686 musl specifically so x64 compiles are not broken
+export CC_i686_unknown_linux_musl="/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-gcc"
+export CXX_i686_unknown_linux_musl="/opt/x86-i686--musl--stable-2025.08-1/bin/i686-linux-g++"
 export PKG_CONFIG_ALLOW_CROSS=1
 
 # Compile Linux x64 binary
