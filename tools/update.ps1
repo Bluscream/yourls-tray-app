@@ -113,10 +113,10 @@ printf '#!/bin/sh\nSELF=$(readlink -f "$0")\nHERE=$(dirname "$SELF")\nexec "$HER
 chmod +x {APP_DIR}/AppRun
 if [ ! -f {TOOL} ]; then curl -L -o {TOOL} https://github.com/AppImage/appimagetool/releases/download/continuous/{TOOL} && chmod +x {TOOL}; fi
 if [ ! -d {SQROOT} ]; then ./{TOOL} --appimage-extract && mv squashfs-root {SQROOT}; fi
-./{SQROOT}/AppRun {APP_DIR} {OUTPUT_FILE}
+ARCH={ARCH_VAR} ./{SQROOT}/AppRun {APP_DIR} {OUTPUT_FILE}
 '@
 
-    $sh = $scriptTemplate.Replace('{WSL_REPO}', $WslRepo).Replace('{APP_DIR}', $AppDir).Replace('{BINARY_SRC}', $BinarySrc).Replace('{TOOL}', $tool).Replace('{SQROOT}', $sqroot).Replace('{OUTPUT_FILE}', $OutputFile)
+    $sh = $scriptTemplate.Replace('{WSL_REPO}', $WslRepo).Replace('{APP_DIR}', $AppDir).Replace('{BINARY_SRC}', $BinarySrc).Replace('{TOOL}', $tool).Replace('{SQROOT}', $sqroot).Replace('{OUTPUT_FILE}', $OutputFile).Replace('{ARCH_VAR}', $ToolArch)
 
     wsl -d $WslDistro sh -c $sh.Replace("`r`n", "`n")
 }
@@ -180,10 +180,25 @@ if ($wslList -notmatch "Alpine") {
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Installing Linux build dependencies in WSL Alpine..."
-InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rust cargo gcompat curl tar xz"
+# We install rustup to manage cross targets inside Alpine since system rustc doesn't support target addition easily.
+InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz"
 
 Step "Setting up i686-linux-musl cross-toolchain..."
-InvokeWsl "if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then curl -L -o /tmp/tc.tgz https://musl.cc/i686-linux-musl-cross.tgz && tar -xzf /tmp/tc.tgz -C /opt && ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-gcc && ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-musl-g++ && echo installed; else echo cached; fi"
+# Download from github release fallback of musl-cross if musl.cc fails or resolves slowly.
+$setupToolchain = @'
+if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
+  echo "Downloading i686-linux-musl cross-toolchain..."
+  curl -L -o /tmp/tc.tgz https://github.com/musl-cross/musl-cross/releases/download/v1.2.4/i686-linux-musl-cross.tgz || \
+  curl -L -o /tmp/tc.tgz https://musl.cc/i686-linux-musl-cross.tgz
+  tar -xzf /tmp/tc.tgz -C /opt
+  ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-gcc
+  ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-musl-g++
+  echo "i686-linux-musl toolchain setup completed."
+else
+  echo "i686-linux-musl toolchain already installed."
+fi
+'@.Replace("`r`n", "`n")
+wsl -d $WslDistro sh -c $setupToolchain
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Sync source to WSL and write Cargo cross-compile config
@@ -203,7 +218,7 @@ Step "Compiling Linux x64 binary..."
 InvokeWsl "cd $WslRepo && CARGO_BUILD_JOBS=20 cargo build --release"
 
 Step "Compiling Linux i686 (32-bit) binary..."
-InvokeWsl "cd $WslRepo && rustup target add i686-unknown-linux-musl && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl"
+InvokeWsl "cd $WslRepo && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Package AppImages in WSL
