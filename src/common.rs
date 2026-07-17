@@ -10,9 +10,32 @@ pub struct AppState {
     pub bypass_undo_write: bool,
 }
 
+static LOG_FILE_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn set_log_file_name(name: String) {
+    if let Ok(mut lock) = LOG_FILE_NAME.lock() {
+        *lock = Some(name);
+    }
+}
+
 pub fn log_debug(msg: &str) {
+    let name = {
+        if let Ok(lock) = LOG_FILE_NAME.lock() {
+            lock.clone().unwrap_or_else(|| "yourls-tray-app.log".to_string())
+        } else {
+            "yourls-tray-app.log".to_string()
+        }
+    };
+
+    let formatted_name = if name.contains('%') {
+        let now = chrono::Local::now();
+        now.format(&name).to_string()
+    } else {
+        name
+    };
+
     let mut log_path = std::env::temp_dir();
-    log_path.push("yourls-tray-app.log");
+    log_path.push(formatted_name);
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
         use std::io::Write;
         let _ = writeln!(f, "{}", msg);

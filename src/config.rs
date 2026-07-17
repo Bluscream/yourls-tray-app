@@ -41,6 +41,8 @@ pub struct Config {
     pub shorten_on_all: bool,
     #[serde(default = "default_locale")]
     pub locale: String,
+    #[serde(default = "default_log_file_name")]
+    pub log_file_name: String,
 }
 
 fn default_true() -> bool {
@@ -53,6 +55,10 @@ fn default_selected_server() -> String {
 
 fn default_locale() -> String {
     "auto".to_string()
+}
+
+fn default_log_file_name() -> String {
+    "yourls-tray-app.log".to_string()
 }
 
 impl Default for Config {
@@ -69,6 +75,7 @@ impl Default for Config {
             selected_server: "Random".to_string(),
             shorten_on_all: false,
             locale: "auto".to_string(),
+            log_file_name: "yourls-tray-app.log".to_string(),
         }
     }
 }
@@ -168,6 +175,8 @@ pub fn load_config() -> Config {
             }
         }
     }
+
+    crate::common::set_log_file_name(config.log_file_name.clone());
 
     config
 }
