@@ -188,8 +188,7 @@ Step "Setting up i686-linux-musl cross-toolchain..."
 $setupToolchain = @'
 if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then
   echo "Downloading i686-linux-musl cross-toolchain..."
-  curl -L -o /tmp/tc.tgz https://github.com/musl-cross/musl-cross/releases/download/v1.2.4/i686-linux-musl-cross.tgz || \
-  curl -L -o /tmp/tc.tgz https://musl.cc/i686-linux-musl-cross.tgz
+  curl -L -o /tmp/tc.tgz https://github.com/musl-cross/musl-cross/releases/download/v1.2.4/i686-linux-musl-cross.tgz || curl -L -o /tmp/tc.tgz https://musl.cc/i686-linux-musl-cross.tgz
   tar -xzf /tmp/tc.tgz -C /opt
   ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-gcc
   ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-musl-g++
@@ -220,10 +219,10 @@ InvokeWsl "mkdir -p $WslRepo/.cargo && printf '[target.i686-unknown-linux-musl]\
 # ─────────────────────────────────────────────────────────────────────────────
 
 Step "Compiling Linux x64 binary..."
-InvokeWsl "export PATH=/root/.cargo/bin:`$PATH && cd $WslRepo && CARGO_BUILD_JOBS=20 cargo build --release"
+InvokeWsl 'export PATH=/root/.cargo/bin:$PATH && cd ~/yourls-tray-app && CARGO_BUILD_JOBS=20 cargo build --release'
 
 Step "Compiling Linux i686 (32-bit) binary..."
-InvokeWsl "export PATH=/root/.cargo/bin:`$PATH && cd $WslRepo && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl"
+InvokeWsl 'export PATH=/root/.cargo/bin:$PATH && cd ~/yourls-tray-app && (rustup target add i686-unknown-linux-musl || true) && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Package AppImages in WSL
@@ -241,10 +240,10 @@ Build-AppImage "AppDir32" "target/i686-unknown-linux-musl/release/yourls-tray-ap
 
 Step "Copying compiled Linux binaries back to host..."
 New-Item -ItemType Directory -Force -Path $HostTarget | Out-Null
-InvokeWsl "cp $WslRepo/target/release/yourls-tray-app                           '$WslTarget/yourls-tray-app_lin64-release'"
-InvokeWsl "cp $WslRepo/yourls-tray-app-x86_64.AppImage                          '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
-InvokeWsl "cp $WslRepo/target/i686-unknown-linux-musl/release/yourls-tray-app   '$WslTarget/yourls-tray-app_lin32-release'"
-InvokeWsl "cp $WslRepo/yourls-tray-app-i686.AppImage                            '$WslTarget/yourls-tray-app_lin32-release.AppImage'"
+InvokeWsl "cp ~/yourls-tray-app/target/release/yourls-tray-app                           '$WslTarget/yourls-tray-app_lin64-release'"
+InvokeWsl "cp ~/yourls-tray-app/yourls-tray-app-x86_64.AppImage                          '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
+InvokeWsl "cp ~/yourls-tray-app/target/i686-unknown-linux-musl/release/yourls-tray-app   '$WslTarget/yourls-tray-app_lin32-release'"
+InvokeWsl "cp ~/yourls-tray-app/yourls-tray-app-i686.AppImage                            '$WslTarget/yourls-tray-app_lin32-release.AppImage'"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. Rename Windows binaries
