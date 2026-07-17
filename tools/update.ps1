@@ -5,199 +5,261 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# 1. Parse current version from Cargo.toml if not passed as an argument
-$cargoContent = Get-Content -Path "Cargo.toml" -Raw
-$versionRegex = '(?m)^version\s*=\s*"([^"]+)"'
-if ($cargoContent -match $versionRegex) {
-    $currentVersion = $Matches[1]
-} else {
-    Write-Error "Could not parse current version from Cargo.toml"
-    exit 1
+# ─────────────────────────────────────────────────────────────────────────────
+# Constants
+# ─────────────────────────────────────────────────────────────────────────────
+
+$Repo         = "Bluscream/yourls-tray-app"
+$WslDistro    = "Alpine"
+$WslRepo      = "~/yourls-tray-app"
+$HostTarget   = "target\release"
+$WslTarget    = "/mnt/d/Projects/Visual Studio/source/repos/target/release"
+$WslSrc       = "/mnt/d/Projects/Visual Studio/source/repos"
+$BadgeBase    = "https://img.shields.io/github/downloads/$Repo"
+$BadgeStyle   = "style=flat-square"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Release asset definitions
+# ─────────────────────────────────────────────────────────────────────────────
+
+$ReleaseAssets = @(
+    @{ FileName = "yourls-tray-app_win64-release.exe";       Label = "win64";            Description = "Windows 64-bit" }
+    @{ FileName = "yourls-tray-app_win32-release.exe";       Label = "win32";            Description = "Windows 32-bit" }
+    @{ FileName = "yourls-tray-app_lin64-release";           Label = "linux64";          Description = "Linux 64-bit (musl static)" }
+    @{ FileName = "yourls-tray-app_lin64-release.AppImage";  Label = "linux64-appimage"; Description = "Linux 64-bit AppImage" }
+    @{ FileName = "yourls-tray-app_lin32-release";           Label = "linux32";          Description = "Linux 32-bit / i686 (musl static)" }
+    @{ FileName = "yourls-tray-app_lin32-release.AppImage";  Label = "linux32-appimage"; Description = "Linux 32-bit AppImage" }
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Step([string]$Msg) {
+    Write-Host $Msg -ForegroundColor Cyan
 }
 
-if (-not $Version) {
-    $Version = Read-Host "Current version is $currentVersion. Enter new version"
+function InvokeWsl([string]$Cmd) {
+    wsl -d $WslDistro sh -c $Cmd
 }
 
-if (-not $Version) {
-    Write-Error "Version cannot be empty."
-    exit 1
+function Get-AssetShield([hashtable]$Asset, [string]$Tag) {
+    $fileName = $Asset.FileName
+    $label = $Asset.Label
+    $url = "${BadgeBase}/${Tag}/${fileName}?${BadgeStyle}&label=${label}"
+    return "[![]($url)](https://github.com/${Repo}/releases/tag/${Tag})"
 }
 
-if (-not $CommitMessage) {
-    $CommitMessage = Read-Host "Enter commit/release message (optional)"
-}
-if (-not $CommitMessage) {
-    $CommitMessage = "Release v$Version"
+function Get-TotalShield {
+    return "[![Downloads](${BadgeBase}/total?${BadgeStyle}&label=total+downloads)](https://github.com/${Repo}/releases)"
 }
 
-# Update Cargo.toml with the new version
-Write-Host "Updating Cargo.toml version to $Version..." -ForegroundColor Cyan
-$cargoContent = $cargoContent -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$Version`""
-Set-Content -Path "Cargo.toml" -Value $cargoContent -NoNewline
-
-# 2. Ensure Rust compilation targets are installed
-Write-Host "Ensuring Rust compilation targets are installed..." -ForegroundColor Cyan
-rustup target add x86_64-pc-windows-msvc
-rustup target add i686-pc-windows-msvc
-
-# 3. Compile Windows Binaries
-Write-Host "Building Windows x64 release binary..." -ForegroundColor Cyan
-cargo build --release --target x86_64-pc-windows-msvc
-
-Write-Host "Building Windows x86 release binary..." -ForegroundColor Cyan
-cargo build --release --target i686-pc-windows-msvc
-
-# 4. Verify WSL Alpine setup
-Write-Host "Verifying WSL Alpine Linux distribution..." -ForegroundColor Cyan
-$wslDistros = wsl.exe -l -v | Out-String
-$wslDistros = $wslDistros -replace "\x00", ""
-if ($wslDistros -notmatch "Alpine") {
-    Write-Host "Alpine WSL distro not found. Setting it up automatically..." -ForegroundColor Yellow
-    $url = "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-minirootfs-3.24.0-x86_64.tar.gz"
-    $downloadPath = "$env:TEMP\alpine-minirootfs.tar.gz"
-    Write-Host "Downloading $url..."
-    Invoke-WebRequest -Uri $url -OutFile $downloadPath -UseBasicParsing
-    New-Item -ItemType Directory -Force -Path "C:\WSL\Alpine" | Out-Null
-    wsl --import Alpine C:\WSL\Alpine $downloadPath
+function Get-AssetLine([hashtable]$Asset, [string]$Tag) {
+    $shield = Get-AssetShield $Asset $Tag
+    $fileName = $Asset.FileName
+    $description = $Asset.Description
+    # Constructing markdown line without using double backticks inside double quotes
+    return "*   ```$fileName``` - $description  $shield"
 }
 
-Write-Host "Installing Linux build dependencies inside WSL Alpine..." -ForegroundColor Cyan
-wsl -d Alpine apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rust cargo gcompat curl
+function Build-ReleaseNotes([string]$Tag, [string]$ChangeLog) {
+    $totalShield = Get-TotalShield
+    $assetLines = @()
+    foreach ($asset in $ReleaseAssets) {
+        $assetLines += Get-AssetLine $asset $Tag
+    }
+    $assetLinesJoined = $assetLines -join "`r`n"
 
-# 5. Sync workspace to WSL native filesystem
-Write-Host "Syncing workspace files to WSL native filesystem..." -ForegroundColor Cyan
-wsl -d Alpine sh -c "mkdir -p ~/yourls-tray-app"
-wsl -d Alpine sh -c "rm -rf ~/yourls-tray-app/src"
-wsl -d Alpine sh -c "cp -r '/mnt/d/Projects/Visual Studio/source/repos/Cargo.toml' '/mnt/d/Projects/Visual Studio/source/repos/Cargo.lock' '/mnt/d/Projects/Visual Studio/source/repos/src' ~/yourls-tray-app/"
+    $notes = @'
+### Release {TAG}  {TOTAL_SHIELD}
 
-# 6. Compile Linux Binary inside WSL
-Write-Host "Compiling native Linux binary in WSL..." -ForegroundColor Cyan
-wsl -d Alpine sh -c "cd ~/yourls-tray-app && CARGO_BUILD_JOBS=20 cargo build --release"
-
-# 7. Package Linux AppImage inside WSL
-Write-Host "Packaging Linux AppImage in WSL..." -ForegroundColor Cyan
-$appImageScript = @'
-cd ~/yourls-tray-app
-mkdir -p AppDir/usr/bin
-mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-
-# Copy compiled binary
-cp target/release/yourls-tray-app AppDir/usr/bin/yourls-tray-app
-
-# Copy app icon
-cp src/icon.png AppDir/yourls-tray-app.png
-cp src/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/yourls-tray-app.png
-
-# Create desktop description file
-cat << 'EOF' > AppDir/yourls-tray-app.desktop
-[Desktop Entry]
-Name=YOURLS Shortener
-Exec=yourls-tray-app
-Icon=yourls-tray-app
-Type=Application
-Categories=Utility;
-Terminal=false
-Comment=Shorten links from clipboard automatically
-EOF
-
-# Create launcher AppRun wrapper
-cat << 'EOF' > AppDir/AppRun
-#!/bin/sh
-SELF=$(readlink -f "$0")
-HERE=$(dirname "$SELF")
-exec "$HERE/usr/bin/yourls-tray-app" "$@"
-EOF
-chmod +x AppDir/AppRun
-
-# Download appimagetool if not exists
-if [ ! -f appimagetool-x86_64.AppImage ]; then
-  curl -L -o appimagetool-x86_64.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-  chmod +x appimagetool-x86_64.AppImage
-fi
-
-# Extract appimagetool to bypass FUSE requirements inside WSL
-if [ ! -d squashfs-root ]; then
-  ./appimagetool-x86_64.AppImage --appimage-extract
-fi
-
-# Build AppImage
-./squashfs-root/AppRun AppDir yourls-tray-app-x86_64.AppImage
-'@.Replace("`r`n", "`n")
-
-wsl -d Alpine sh -c $appImageScript
-
-# 8. Copy Linux ELF + AppImage back to host Windows workspace
-Write-Host "Copying compiled Linux binaries back to host..." -ForegroundColor Cyan
-New-Item -ItemType Directory -Force -Path "target\release" | Out-Null
-wsl -d Alpine cp ~/yourls-tray-app/target/release/yourls-tray-app "/mnt/d/Projects/Visual Studio/source/repos/target/release/yourls-tray-app_lin64-release"
-wsl -d Alpine cp ~/yourls-tray-app/yourls-tray-app-x86_64.AppImage "/mnt/d/Projects/Visual Studio/source/repos/target/release/yourls-tray-app_lin64-release.AppImage"
-
-# 9. Commit, Tag & Push to GitHub
-Write-Host "Creating Git commit and tag v$Version..." -ForegroundColor Cyan
-git add .
-git commit -m "$CommitMessage"
-git push origin main
-git tag "v$Version"
-git push origin "v$Version"
-
-# 10. Copy and Rename Windows binaries for release packaging
-Copy-Item -Path "target\x86_64-pc-windows-msvc\release\yourls-tray-app.exe" -Destination "target\release\yourls-tray-app_win64-release.exe" -Force
-Copy-Item -Path "target\i686-pc-windows-msvc\release\yourls-tray-app.exe" -Destination "target\release\yourls-tray-app_win32-release.exe" -Force
-
-# 11. Publish GitHub Release via gh CLI
-Write-Host "Creating GitHub Release v$Version..." -ForegroundColor Cyan
-$env:GITHUB_TOKEN=""
-
-$repo = "Bluscream/yourls-tray-app"
-$tagEncoded = "v$Version"
-$badgeBase = "https://img.shields.io/github/downloads/$repo"
-$badgeStyle = "style=flat-square"
-
-$shieldTotal  = "[![Downloads](${badgeBase}/total?${badgeStyle}`&label=total+downloads)](https://github.com/${repo}/releases)"
-$shieldWin64  = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_win64-release.exe?${badgeStyle}`&label=win64)](https://github.com/${repo}/releases/tag/${tagEncoded})"
-$shieldWin32  = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_win32-release.exe?${badgeStyle}`&label=win32)](https://github.com/${repo}/releases/tag/${tagEncoded})"
-$shieldLin64  = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_lin64-release?${badgeStyle}`&label=linux64)](https://github.com/${repo}/releases/tag/${tagEncoded})"
-$shieldAppImg = "[![](${badgeBase}/${tagEncoded}/yourls-tray-app_lin64-release.AppImage?${badgeStyle}`&label=AppImage)](https://github.com/${repo}/releases/tag/${tagEncoded})"
-
-$notes = @"
-### Release v$Version  $shieldTotal
-
-$CommitMessage
+{CHANGELOG}
 
 #### Compiled Binaries:
-*   ``yourls-tray-app_win64-release.exe`` — Windows 64-bit  $shieldWin64
-*   ``yourls-tray-app_win32-release.exe`` — Windows 32-bit  $shieldWin32
-*   ``yourls-tray-app_lin64-release`` — Native Linux 64-bit (musl static)  $shieldLin64
-*   ``yourls-tray-app_lin64-release.AppImage`` — Standalone Linux AppImage  $shieldAppImg
+{ASSET_LINES}
 
 #### Linux Dependency Installation Notes
 To run the Linux binary natively, please ensure the following dependencies are installed on your system (depending on your distribution):
-* **Wayland Clipboard Support**: ``wl-clipboard`` (provides ``wl-copy`` and ``wl-paste``)
-* **Keyboard Bypass Features**: ``xdotool`` (provides the ``libxdo.so.4`` shared library required for the Shift-key bypass)
+* **Wayland Clipboard Support**: `wl-clipboard` (provides `wl-copy` and `wl-paste`)
+* **Keyboard Bypass Features**: `xdotool` (provides the `libxdo.so.4` shared library required for the Shift-key bypass)
 
 **Ubuntu / Debian (natively)**:
-``````bash
+```bash
 sudo apt install wl-clipboard xdotool
-``````
+```
 
 **Arch Linux (natively)**:
-``````bash
+```bash
 sudo pacman -S wl-clipboard xdotool
-``````
-"@
+```
+'@
 
-$notesFile = "$env:TEMP\release_notes_v$Version.md"
-Set-Content -Path $notesFile -Value $notes -NoNewline
+    return $notes.Replace('{TAG}', $Tag).Replace('{TOTAL_SHIELD}', $totalShield).Replace('{CHANGELOG}', $ChangeLog).Replace('{ASSET_LINES}', $assetLinesJoined)
+}
 
-gh release create "v$Version" --title "v$Version" --notes-file $notesFile `
-  "target\release\yourls-tray-app_win64-release.exe" `
-  "target\release\yourls-tray-app_win32-release.exe" `
-  "target\release\yourls-tray-app_lin64-release" `
-  "target\release\yourls-tray-app_lin64-release.AppImage"
+function Build-AppImage([string]$AppDir, [string]$BinarySrc, [string]$OutputFile, [string]$ToolArch) {
+    $tool   = "appimagetool-${ToolArch}.AppImage"
+    $sqroot = "squashfs-root-${ToolArch}"
+
+    # Build the shell script using string replacement to avoid any parser errors with $ escaping in double quotes
+    $scriptTemplate = @'
+cd {WSL_REPO}
+mkdir -p {APP_DIR}/usr/bin {APP_DIR}/usr/share/icons/hicolor/256x256/apps
+cp {BINARY_SRC} {APP_DIR}/usr/bin/yourls-tray-app
+cp src/icon.png {APP_DIR}/yourls-tray-app.png
+cp src/icon.png {APP_DIR}/usr/share/icons/hicolor/256x256/apps/yourls-tray-app.png
+printf '[Desktop Entry]\nName=YOURLS Shortener\nExec=yourls-tray-app\nIcon=yourls-tray-app\nType=Application\nCategories=Utility;\nTerminal=false\nComment=Shorten links from clipboard automatically\n' > {APP_DIR}/yourls-tray-app.desktop
+printf '#!/bin/sh\nSELF=$(readlink -f "$0")\nHERE=$(dirname "$SELF")\nexec "$HERE/usr/bin/yourls-tray-app" "$@"\n' > {APP_DIR}/AppRun
+chmod +x {APP_DIR}/AppRun
+if [ ! -f {TOOL} ]; then curl -L -o {TOOL} https://github.com/AppImage/appimagetool/releases/download/continuous/{TOOL} && chmod +x {TOOL}; fi
+if [ ! -d {SQROOT} ]; then ./{TOOL} --appimage-extract && mv squashfs-root {SQROOT}; fi
+./{SQROOT}/AppRun {APP_DIR} {OUTPUT_FILE}
+'@
+
+    $sh = $scriptTemplate.Replace('{WSL_REPO}', $WslRepo).Replace('{APP_DIR}', $AppDir).Replace('{BINARY_SRC}', $BinarySrc).Replace('{TOOL}', $tool).Replace('{SQROOT}', $sqroot).Replace('{OUTPUT_FILE}', $OutputFile)
+
+    wsl -d $WslDistro sh -c $sh.Replace("`r`n", "`n")
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Resolve version
+# ─────────────────────────────────────────────────────────────────────────────
+
+$cargoContent = Get-Content -Path "Cargo.toml" -Raw
+if ($cargoContent -match '(?m)^version\s*=\s*"([^"]+)"') {
+    $currentVersion = $Matches[1]
+} else {
+    Write-Error "Could not parse version from Cargo.toml"; exit 1
+}
+
+if (-not $Version)       { $Version       = Read-Host "Current version is $currentVersion. Enter new version" }
+if (-not $Version)       { Write-Error "Version cannot be empty."; exit 1 }
+if (-not $CommitMessage) { $CommitMessage  = Read-Host "Enter commit/release message (optional)" }
+if (-not $CommitMessage) { $CommitMessage  = "Release v$Version" }
+
+$Tag = "v$Version"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Bump Cargo.toml
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Updating Cargo.toml version to $Version..."
+$cargoContent = $cargoContent -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$Version`""
+Set-Content -Path "Cargo.toml" -Value $cargoContent -NoNewline
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Build Windows binaries
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Ensuring Rust Windows targets are installed..."
+rustup target add x86_64-pc-windows-msvc
+rustup target add i686-pc-windows-msvc
+
+Step "Building Windows x64..."
+cargo build --release --target x86_64-pc-windows-msvc
+
+Step "Building Windows x86..."
+cargo build --release --target i686-pc-windows-msvc
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Ensure WSL Alpine is available
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Verifying WSL Alpine Linux distribution..."
+$wslList = (wsl.exe -l -v | Out-String) -replace "\x00", ""
+if ($wslList -notmatch "Alpine") {
+    Write-Host "Alpine WSL distro not found - bootstrapping..." -ForegroundColor Yellow
+    $tarball = "$env:TEMP\alpine-minirootfs.tar.gz"
+    Invoke-WebRequest -Uri "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-minirootfs-3.24.0-x86_64.tar.gz" -OutFile $tarball -UseBasicParsing
+    New-Item -ItemType Directory -Force -Path "C:\WSL\Alpine" | Out-Null
+    wsl --import Alpine C:\WSL\Alpine $tarball
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Install Linux build dependencies
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Installing Linux build dependencies in WSL Alpine..."
+InvokeWsl "apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rust cargo gcompat curl tar xz"
+
+Step "Setting up i686-linux-musl cross-toolchain..."
+InvokeWsl "if [ ! -f /usr/local/bin/i686-linux-musl-gcc ]; then curl -L -o /tmp/tc.tgz https://musl.cc/i686-linux-musl-cross.tgz && tar -xzf /tmp/tc.tgz -C /opt && ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-gcc /usr/local/bin/i686-linux-musl-gcc && ln -sf /opt/i686-linux-musl-cross/bin/i686-linux-musl-g++ /usr/local/bin/i686-linux-musl-g++ && echo installed; else echo cached; fi"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Sync source to WSL and write Cargo cross-compile config
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Syncing workspace to WSL native filesystem..."
+InvokeWsl "mkdir -p $WslRepo && rm -rf $WslRepo/src && cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
+
+Step "Writing Cargo cross-compilation config..."
+InvokeWsl "mkdir -p $WslRepo/.cargo && printf '[target.i686-unknown-linux-musl]\nlinker = \`"i686-linux-musl-gcc\`"\n' > $WslRepo/.cargo/config.toml"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Compile Linux binaries in WSL
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Compiling Linux x64 binary..."
+InvokeWsl "cd $WslRepo && CARGO_BUILD_JOBS=20 cargo build --release"
+
+Step "Compiling Linux i686 (32-bit) binary..."
+InvokeWsl "cd $WslRepo && rustup target add i686-unknown-linux-musl && CARGO_BUILD_JOBS=20 cargo build --release --target i686-unknown-linux-musl"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Package AppImages in WSL
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Packaging Linux x64 AppImage..."
+Build-AppImage "AppDir64" "target/release/yourls-tray-app" "yourls-tray-app-x86_64.AppImage" "x86_64"
+
+Step "Packaging Linux i686 AppImage..."
+Build-AppImage "AppDir32" "target/i686-unknown-linux-musl/release/yourls-tray-app" "yourls-tray-app-i686.AppImage" "i686"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Copy binaries back to Windows host
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Copying compiled Linux binaries back to host..."
+New-Item -ItemType Directory -Force -Path $HostTarget | Out-Null
+InvokeWsl "cp $WslRepo/target/release/yourls-tray-app                           '$WslTarget/yourls-tray-app_lin64-release'"
+InvokeWsl "cp $WslRepo/yourls-tray-app-x86_64.AppImage                          '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
+InvokeWsl "cp $WslRepo/target/i686-unknown-linux-musl/release/yourls-tray-app   '$WslTarget/yourls-tray-app_lin32-release'"
+InvokeWsl "cp $WslRepo/yourls-tray-app-i686.AppImage                            '$WslTarget/yourls-tray-app_lin32-release.AppImage'"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. Rename Windows binaries
+# ─────────────────────────────────────────────────────────────────────────────
+
+Copy-Item "target\x86_64-pc-windows-msvc\release\yourls-tray-app.exe" "$HostTarget\yourls-tray-app_win64-release.exe" -Force
+Copy-Item "target\i686-pc-windows-msvc\release\yourls-tray-app.exe"   "$HostTarget\yourls-tray-app_win32-release.exe" -Force
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. Commit, tag and push
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Creating Git commit and tag $Tag..."
+git add .
+git commit -m $CommitMessage
+git push origin main
+git tag $Tag
+git push origin $Tag
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. Publish GitHub Release
+# ─────────────────────────────────────────────────────────────────────────────
+
+Step "Publishing GitHub Release $Tag..."
+$env:GITHUB_TOKEN = ""
+
+$notesFile  = "$env:TEMP\release_notes_$Tag.md"
+$assetPaths = $ReleaseAssets | ForEach-Object { "$HostTarget\$($_.FileName)" }
+
+Set-Content -Path $notesFile -Value (Build-ReleaseNotes $Tag $CommitMessage) -NoNewline
+
+gh release create $Tag --title $Tag --notes-file $notesFile @assetPaths
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "Successfully created and published Release v$Version!" -ForegroundColor Green
+    Write-Host "Successfully published Release $Tag!" -ForegroundColor Green
 } else {
     Write-Error "Failed to publish release on GitHub."
 }
