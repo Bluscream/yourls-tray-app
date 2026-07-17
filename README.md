@@ -1,6 +1,4 @@
-# YOURLS Tray App
-
-[![Latest Release](https://img.shields.io/github/v/release/Bluscream/yourls-tray-app?label=version&style=flat-square)](https://github.com/Bluscream/yourls-tray-app/releases/latest) [![Total Downloads](https://img.shields.io/github/downloads/Bluscream/yourls-tray-app/total?style=flat-square&label=total%20downloads)](https://github.com/Bluscream/yourls-tray-app/releases)
+# YOURLS Tray App [![Latest Release](https://img.shields.io/github/v/release/Bluscream/yourls-tray-app?label=version&style=flat-square)](https://github.com/Bluscream/yourls-tray-app/releases/latest) [![Total Downloads](https://img.shields.io/github/downloads/Bluscream/yourls-tray-app/total?style=flat-square&label=total%20downloads)](https://github.com/Bluscream/yourls-tray-app/releases)
 
 A lightweight, cross-platform system tray application written in Rust for **Windows** and **Linux** (Wayland/X11) that monitors your clipboard for URLs and automatically shortens them using your personal [YOURLS](https://yourls.org) server.
 
