@@ -75,7 +75,8 @@ fn spawn_undo_hotkey(state_undo: Arc<Mutex<AppState>>) {
                                 "{}?signature={}&action=delete&shorturl={}&format=json",
                                 server.api_url, server.signature, keyword
                             );
-                            match ureq::get(&delete_url).timeout(Duration::from_secs(3)).call() {
+                            let agent = crate::common::get_agent(config.ignore_ssl_errors);
+                            match agent.get(&delete_url).timeout(Duration::from_secs(3)).call() {
                                 Ok(res) => {
                                     let body = res.into_string().unwrap_or_default();
                                     log_debug(&format!("Delete API response from '{}': {}", server.name, body));
@@ -112,7 +113,7 @@ fn spawn_undo_hotkey(state_undo: Arc<Mutex<AppState>>) {
                     let body_text = i18n::t(i18n::Key::DeletedRestored, &locale)
                         .replace("{short_url}", &short_url)
                         .replace("{long_url}", &long_url)
-                        .replace("{}", &short_url)
+                        .replacen("{}", &short_url, 1)
                         .replacen("{}", &long_url, 1);
 
                     let _ = Notification::new()

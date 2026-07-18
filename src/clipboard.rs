@@ -231,7 +231,8 @@ pub fn process_clipboard_text(
         primary.api_url, primary.signature, encoded_url
     );
 
-    let response = match ureq::get(&api_call_url).timeout(Duration::from_secs(3)).call() {
+    let agent = crate::common::get_agent(config.ignore_ssl_errors);
+    let response = match agent.get(&api_call_url).timeout(Duration::from_secs(3)).call() {
         Ok(res) => match res.into_string() {
             Ok(s) => s.trim().to_string(),
             Err(e) => {
@@ -272,7 +273,7 @@ pub fn process_clipboard_text(
                 "{}?signature={}&action=shorturl&url={}&keyword={}&format=simple",
                 server.api_url, server.signature, encoded_url, slug
             );
-            match ureq::get(&secondary_api_url).timeout(Duration::from_secs(3)).call() {
+            match agent.get(&secondary_api_url).timeout(Duration::from_secs(3)).call() {
                 Ok(res) => {
                     if let Ok(body) = res.into_string() {
                         log_debug(&format!("Secondary server '{}' response: {}", server.name, body.trim()));
@@ -314,7 +315,7 @@ pub fn process_clipboard_text(
     let body_text = i18n::t(i18n::Key::OriginalShortened, &locale)
         .replace("{text}", &text)
         .replace("{response}", &response)
-        .replace("{}", &text)
+        .replacen("{}", &text, 1)
         .replacen("{}", &response, 1);
 
     let _ = Notification::new()

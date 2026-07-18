@@ -11,6 +11,7 @@ pub fn fetch_history(config: &config::Config) -> Vec<(String, String)> {
     for server in &config.servers {
         let api_url = server.api_url.clone();
         let signature = server.signature.clone();
+        let ignore_ssl = config.ignore_ssl_errors;
         if api_url.trim().is_empty() || signature.trim().is_empty() {
             continue;
         }
@@ -21,7 +22,8 @@ pub fn fetch_history(config: &config::Config) -> Vec<(String, String)> {
                 api_url, signature
             );
 
-            let response = match ureq::get(&api_call_url)
+            let agent = crate::common::get_agent(ignore_ssl);
+            let response = match agent.get(&api_call_url)
                 .timeout(Duration::from_secs(3))
                 .call()
             {

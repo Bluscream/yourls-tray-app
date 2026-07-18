@@ -45,6 +45,8 @@ pub struct Config {
     pub log_file_name: String,
     #[serde(default)]
     pub check_update_on_startup: bool,
+    #[serde(default)]
+    pub ignore_ssl_errors: bool,
 }
 
 fn default_true() -> bool {
@@ -79,6 +81,7 @@ impl Default for Config {
             locale: "auto".to_string(),
             log_file_name: "yourls-tray-app.log".to_string(),
             check_update_on_startup: false,
+            ignore_ssl_errors: false,
         }
     }
 }

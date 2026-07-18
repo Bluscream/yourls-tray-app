@@ -74,3 +74,31 @@ pub fn is_scroll_lock_active() -> bool {
         false
     }
 }
+
+pub fn get_agent(ignore_ssl: bool) -> ureq::Agent {
+    struct V4Resolver;
+    impl ureq::Resolver for V4Resolver {
+        fn resolve(&self, netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+            use std::net::ToSocketAddrs;
+            let addrs = netloc.to_socket_addrs()?;
+            let v4_addrs: Vec<_> = addrs.into_iter().filter(|addr| addr.is_ipv4()).collect();
+            if v4_addrs.is_empty() {
+                return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "No IPv4 address found"));
+            }
+            Ok(v4_addrs)
+        }
+    }
+
+    let mut builder = ureq::builder().resolver(V4Resolver);
+
+    if ignore_ssl {
+        let mut tls_connector = native_tls::TlsConnector::builder();
+        tls_connector.danger_accept_invalid_certs(true);
+        tls_connector.danger_accept_invalid_hostnames(true);
+        if let Ok(connector) = tls_connector.build() {
+            builder = builder.tls_connector(std::sync::Arc::new(connector));
+        }
+    }
+    builder.build()
+}
+
