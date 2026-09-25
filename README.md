@@ -164,6 +164,34 @@ For a full automated build + release (Windows + Linux + AppImage + GitHub releas
 .\tools\update.ps1 -Version "1.0.4" -CommitMessage "Your release notes here"
 ```
 
+## Command line
+
+The binary is `yourls`. Shortening is what it does by default; the tray is
+opt-in.
+
+```sh
+yourls https://example.com/something        # prints the short URL
+echo https://example.com | yourls           # or read it from stdin
+yourls --server sari-ist-cute.de <url>      # pin it to one configured server
+yourls --server auto <url>                  # or follow the config (the default)
+yourls --tray                               # run the clipboard tray
+```
+
+Only the short URL goes to standard output, so it composes:
+
+```sh
+yourls "$url" | wl-copy
+```
+
+Errors go to standard error and exit 1; a bad argument exits 2. A URL matching
+`blacklist_regex` is printed back unchanged, so a pipe never loses it.
+
+Two builds are released. The default has the tray and works as a CLI too. The
+`-cli` one is built with `--no-default-features` and links no GTK,
+appindicator or libxdo at all — six libraries instead of seventy-two — so it
+runs on a machine with no desktop.
+
+
 ## Authors
 
 - **Bluscream**
