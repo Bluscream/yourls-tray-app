@@ -299,7 +299,7 @@ yourls — shorten a URL with a YOURLS instance
 
 Usage:
   yourls <url>        shorten that URL and print the short one
-  yourls              read the URL from standard input instead
+  cmd | yourls        read the URL from standard input instead
   yourls --tray       run the clipboard tray app
   yourls --help       show this
   yourls --version    show the version
@@ -356,7 +356,18 @@ fn run_shorten(
     let input = if let Some(url) = argument {
         url.to_string()
     } else {
-        use std::io::Read as _;
+        use std::io::{IsTerminal as _, Read as _};
+
+        // Reading stdin is for `echo url | yourls`. When stdin is a terminal
+        // there is nothing to read, and blocking in read_to_string until the
+        // user happens to press Ctrl-D is indistinguishable from a hang — so
+        // a bare `yourls` says what it wants instead of sitting there.
+        if std::io::stdin().is_terminal() {
+            eprintln!("yourls: no URL given\n");
+            eprintln!("{USAGE}");
+            std::process::exit(2);
+        }
+
         let mut buffer = String::new();
         std::io::stdin().read_to_string(&mut buffer)?;
         buffer
