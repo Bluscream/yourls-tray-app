@@ -1,30 +1,153 @@
-#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+// The windows subsystem suppresses the console window a tray app must not
+// show. It is applied only to a build that actually has a tray: a CLI-only
+// build (--no-default-features) is an ordinary console program, which is what
+// a shell expects.
+//
+// A tray-enabled build used from the command line gets its console back at
+// runtime instead — see the `console` module below.
+#![cfg_attr(
+    all(target_os = "windows", feature = "tray"),
+    windows_subsystem = "windows"
+)]
 
-mod config;
-mod common;
+#[cfg(feature = "tray")]
 mod api;
+#[cfg(feature = "tray")]
 mod clipboard;
-mod tray;
+mod common;
+mod config;
+#[cfg(feature = "tray")]
 mod i18n;
+mod shorten;
+#[cfg(feature = "tray")]
+mod tray;
+#[cfg(feature = "tray")]
 mod update;
 
-use config::load_config;
-use common::{AppState, log_debug};
+#[cfg(feature = "tray")]
 use api::fetch_history;
-#[cfg(target_os = "windows")]
-use clipboard::spawn_clipboard_monitor;
-#[cfg(target_os = "linux")]
-use clipboard::spawn_linux_clipboard_poll;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "tray"))]
 use arboard::Clipboard;
-use tray::{build_tray_menu, create_icon, run_event_loop};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use tray_icon::TrayIconBuilder;
-use notify_rust::Notification;
+#[cfg(all(target_os = "windows", feature = "tray"))]
+use clipboard::spawn_clipboard_monitor;
+#[cfg(all(target_os = "linux", feature = "tray"))]
+use clipboard::spawn_linux_clipboard_poll;
+#[cfg(feature = "tray")]
+use common::{AppState, log_debug};
+use config::load_config;
+#[cfg(feature = "tray")]
 use device_query::{DeviceQuery, DeviceState, Keycode};
+#[cfg(feature = "tray")]
+use notify_rust::Notification;
+#[cfg(feature = "tray")]
+use std::sync::{Arc, Mutex};
+#[cfg(feature = "tray")]
+use std::thread;
+#[cfg(feature = "tray")]
+use std::time::Duration;
+#[cfg(feature = "tray")]
+use tray::{build_tray_menu, create_icon, run_event_loop};
+#[cfg(feature = "tray")]
+use tray_icon::TrayIconBuilder;
 
+/// Getting output onto a console on Windows.
+///
+/// A windows-subsystem process starts with no console and no valid standard
+/// handles, so `println!` goes nowhere — which is fine for the tray and
+/// useless for the CLI. Attaching to the console of whichever shell launched
+/// us, and pointing the standard handles at it, makes `yourls <url>` print
+/// where the user is looking.
+///
+/// Redirection and pipes already work without any of this: the parent hands
+/// down real handles, and the first branch below leaves them alone.
+#[cfg(all(target_os = "windows", feature = "tray"))]
+mod console {
+    use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE, SetStdHandle,
+    };
+
+    /// Attaches to the parent's console, if there is one and we have none.
+    ///
+    /// Silent by design: every failure here means "there is no console to
+    /// write to", which is not an error — the output is redirected, or the
+    /// program was double-clicked.
+    // Every call is a Win32 call, so there is no safe formulation. Each one is
+    // a handle query or assignment with no memory involved beyond the
+    // null-terminated literals below.
+    #[allow(unsafe_code)]
+    pub fn attach_to_parent() {
+        unsafe {
+            // A valid handle already means output is redirected to a file or a
+            // pipe, and hijacking it would send the result somewhere the user
+            // did not ask for.
+            let existing = GetStdHandle(STD_OUTPUT_HANDLE);
+            if !existing.is_null() && existing != INVALID_HANDLE_VALUE {
+                return;
+            }
+            if AttachConsole(ATTACH_PARENT_PROCESS) == 0 {
+                return;
+            }
+            // CONOUT$/CONIN$ name the attached console regardless of what the
+            // standard handles currently point at.
+            const CONOUT: [u16; 8] = [
+                b'C' as u16,
+                b'O' as u16,
+                b'N' as u16,
+                b'O' as u16,
+                b'U' as u16,
+                b'T' as u16,
+                b'$' as u16,
+                0,
+            ];
+            const CONIN: [u16; 7] = [
+                b'C' as u16,
+                b'O' as u16,
+                b'N' as u16,
+                b'I' as u16,
+                b'N' as u16,
+                b'$' as u16,
+                0,
+            ];
+
+            let output = CreateFileW(
+                CONOUT.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                std::ptr::null_mut(),
+            );
+            if output != INVALID_HANDLE_VALUE {
+                SetStdHandle(STD_OUTPUT_HANDLE, output);
+                SetStdHandle(STD_ERROR_HANDLE, output);
+            }
+
+            let input = CreateFileW(
+                CONIN.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                std::ptr::null_mut(),
+            );
+            if input != INVALID_HANDLE_VALUE {
+                SetStdHandle(STD_INPUT_HANDLE, input);
+            }
+        }
+    }
+}
+
+/// The tray's own state handling predates the lint policy; see the note at the
+/// top of `tray.rs`.
+#[cfg(feature = "tray")]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
 fn spawn_undo_hotkey(state_undo: Arc<Mutex<AppState>>) {
     thread::spawn(move || {
         log_debug("Spawning Ctrl+Backspace undo hotkey thread...");
@@ -57,7 +180,9 @@ fn spawn_undo_hotkey(state_undo: Arc<Mutex<AppState>>) {
                 let locale = i18n::get_locale(&config.locale);
 
                 if let Some((long_url, short_url)) = undo_pair {
-                    log_debug(&format!("Undoing: deleting {} and restoring {}", short_url, long_url));
+                    log_debug(&format!(
+                        "Undoing: deleting {short_url} and restoring {long_url}"
+                    ));
 
                     let keyword = short_url
                         .trim_end_matches('/')
@@ -68,20 +193,33 @@ fn spawn_undo_hotkey(state_undo: Arc<Mutex<AppState>>) {
 
                     if !keyword.is_empty() {
                         for server in &config.servers {
-                            if server.api_url.trim().is_empty() || server.signature.trim().is_empty() {
+                            if server.api_url.trim().is_empty()
+                                || server.signature.trim().is_empty()
+                            {
                                 continue;
                             }
                             let delete_url = format!(
                                 "{}?signature={}&action=delete&shorturl={}&format=json",
                                 server.api_url, server.signature, keyword
                             );
-                            match ureq::get(&delete_url).timeout(Duration::from_secs(3)).call() {
+                            let agent = crate::common::get_agent(config.ignore_ssl_errors);
+                            match agent
+                                .get(&delete_url)
+                                .timeout(Duration::from_secs(3))
+                                .call()
+                            {
                                 Ok(res) => {
                                     let body = res.into_string().unwrap_or_default();
-                                    log_debug(&format!("Delete API response from '{}': {}", server.name, body));
+                                    log_debug(&format!(
+                                        "Delete API response from '{}': {}",
+                                        server.name, body
+                                    ));
                                 }
                                 Err(e) => {
-                                    log_debug(&format!("Delete API request failed for '{}': {:?}", server.name, e));
+                                    log_debug(&format!(
+                                        "Delete API request failed for '{}': {:?}",
+                                        server.name, e
+                                    ));
                                 }
                             }
                         }
@@ -112,7 +250,7 @@ fn spawn_undo_hotkey(state_undo: Arc<Mutex<AppState>>) {
                     let body_text = i18n::t(i18n::Key::DeletedRestored, &locale)
                         .replace("{short_url}", &short_url)
                         .replace("{long_url}", &long_url)
-                        .replace("{}", &short_url)
+                        .replacen("{}", &short_url, 1)
                         .replacen("{}", &long_url, 1);
 
                     let _ = Notification::new()
@@ -131,10 +269,142 @@ fn spawn_undo_hotkey(state_undo: Arc<Mutex<AppState>>) {
     });
 }
 
+/// What the command line asked for.
+enum Invocation {
+    /// Shorten this URL and print the result. The URL comes from an argument,
+    /// or from standard input when there is none; the server is the one named
+    /// by `--server`, or whatever the config picks.
+    Shorten {
+        url: Option<String>,
+        server: Option<String>,
+    },
+    Tray,
+    Help,
+    Version,
+    /// Something was wrong with the arguments themselves.
+    Invalid(String),
+}
+
+fn parse_arguments(arguments: &[String]) -> Invocation {
+    let mut url = None;
+    let mut server = None;
+    let mut wants_server = false;
+
+    for argument in arguments {
+        if wants_server {
+            server = Some(argument.clone());
+            wants_server = false;
+            continue;
+        }
+        match argument.as_str() {
+            "--tray" | "-t" => return Invocation::Tray,
+            "--help" | "-h" => return Invocation::Help,
+            "--version" | "-V" => return Invocation::Version,
+            // Accepted and ignored: it is what the shortening mode does
+            // anyway, and it reads well in a config file that spells out what
+            // the command is for.
+            "--shorten" | "-s" => {}
+            "--server" => wants_server = true,
+            // Both spellings, because `--server=x` is what anyone writes in a
+            // config file and silently treating it as the URL would be worse
+            // than any error.
+            other if other.starts_with("--server=") => {
+                server = Some(other["--server=".len()..].to_string());
+            }
+            other => url = Some(other.to_string()),
+        }
+    }
+
+    if wants_server {
+        return Invocation::Invalid("--server needs a name (or `auto`)".to_string());
+    }
+    Invocation::Shorten { url, server }
+}
+
+const USAGE: &str = "\
+yourls — shorten a URL with a YOURLS instance
+
+Usage:
+  yourls <url>        shorten that URL and print the short one
+  yourls              read the URL from standard input instead
+  yourls --tray       run the clipboard tray app
+  yourls --help       show this
+  yourls --version    show the version
+
+Options:
+  --server <name>     use that configured server. `auto`, or leaving it out,
+                      follows the config's own choice — which spreads links
+                      across every configured server unless it names one.
+
+The short URL is printed on standard output and nothing else is, so this can
+be used in a pipe. Errors go to standard error and exit with status 1.
+
+Servers are configured in the config file; the path is shown when none is.";
+
 fn main() {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+
+    let invocation = parse_arguments(&arguments);
+
+    // Anything but the tray writes to standard output, so it needs a console.
+    #[cfg(all(target_os = "windows", feature = "tray"))]
+    if !matches!(invocation, Invocation::Tray) {
+        console::attach_to_parent();
+    }
+
+    match invocation {
+        #[cfg(feature = "tray")]
+        Invocation::Tray => run_tray(),
+        #[cfg(not(feature = "tray"))]
+        Invocation::Tray => {
+            eprintln!("yourls: this build has no tray (compiled with --no-default-features)");
+            std::process::exit(2);
+        }
+        Invocation::Help => println!("{USAGE}"),
+        Invocation::Version => println!("yourls {}", env!("CARGO_PKG_VERSION")),
+        Invocation::Shorten { url, server } => {
+            if let Err(e) = run_shorten(url.as_deref(), server.as_deref()) {
+                eprintln!("yourls: {e}");
+                std::process::exit(1);
+            }
+        }
+        Invocation::Invalid(reason) => {
+            eprintln!("yourls: {reason}");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Shortens one URL and prints it.
+fn run_shorten(
+    argument: Option<&str>,
+    server: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let input = if let Some(url) = argument {
+        url.to_string()
+    } else {
+        use std::io::Read as _;
+        let mut buffer = String::new();
+        std::io::stdin().read_to_string(&mut buffer)?;
+        buffer
+    };
+
+    let url = shorten::parse_url(&input)?;
+    let config = load_config();
+    let short = shorten::shorten(&url, &config, server)?;
+    println!("{short}");
+    Ok(())
+}
+
+/// The tray's own state handling predates the lint policy; see the note at the
+/// top of `tray.rs`.
+#[cfg(feature = "tray")]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
+fn run_tray() {
     log_debug("Application started.");
-    
-    let instance = single_instance::SingleInstance::new("yourls-tray-app-single-instance-lock").unwrap();
+
+    let instance =
+        single_instance::SingleInstance::new("yourls-tray-app-single-instance-lock").unwrap();
     if !instance.is_single() {
         log_debug("Another instance is already running. Exiting.");
         eprintln!("Another instance is already running. Exiting.");
@@ -194,7 +464,11 @@ fn main() {
                 break;
             }
             Err(e) => {
-                log_debug(&format!("Tray icon initialization failed (attempt {}/5): {:?}", i + 1, e));
+                log_debug(&format!(
+                    "Tray icon initialization failed (attempt {}/5): {:?}",
+                    i + 1,
+                    e
+                ));
                 thread::sleep(Duration::from_millis(500));
             }
         }
@@ -250,4 +524,78 @@ fn main() {
         item_check_update,
         item_title,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Invocation, parse_arguments};
+
+    fn parse(arguments: &[&str]) -> Invocation {
+        let owned: Vec<String> = arguments.iter().map(|a| (*a).to_string()).collect();
+        parse_arguments(&owned)
+    }
+
+    #[test]
+    fn a_bare_url_is_shortened_with_no_server_preference() {
+        match parse(&["https://example.com"]) {
+            Invocation::Shorten { url, server } => {
+                assert_eq!(url.as_deref(), Some("https://example.com"));
+                assert_eq!(server, None);
+            }
+            _ => panic!("expected Shorten"),
+        }
+    }
+
+    #[test]
+    fn the_server_can_be_given_either_way_round() {
+        for arguments in [
+            &["--server", "sari-ist-cute.de", "https://example.com"][..],
+            &["https://example.com", "--server=sari-ist-cute.de"][..],
+        ] {
+            match parse(arguments) {
+                Invocation::Shorten { url, server } => {
+                    assert_eq!(url.as_deref(), Some("https://example.com"));
+                    assert_eq!(server.as_deref(), Some("sari-ist-cute.de"));
+                }
+                _ => panic!("expected Shorten for {arguments:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_server_with_no_name_is_an_error_rather_than_a_url() {
+        // The regression this guards: treating the missing value as the URL
+        // would shorten the string "--server".
+        assert!(matches!(
+            parse(&["https://example.com", "--server"]),
+            Invocation::Invalid(_)
+        ));
+    }
+
+    #[test]
+    fn a_url_that_looks_like_a_server_name_is_still_the_value() {
+        match parse(&["--server", "--tray"]) {
+            Invocation::Shorten { server, .. } => assert_eq!(server.as_deref(), Some("--tray")),
+            _ => panic!("the value after --server is a value, not a flag"),
+        }
+    }
+
+    #[test]
+    fn the_modes_are_recognised() {
+        assert!(matches!(parse(&["--tray"]), Invocation::Tray));
+        assert!(matches!(parse(&["-t"]), Invocation::Tray));
+        assert!(matches!(parse(&["--help"]), Invocation::Help));
+        assert!(matches!(parse(&["--version"]), Invocation::Version));
+    }
+
+    #[test]
+    fn no_arguments_reads_standard_input() {
+        match parse(&[]) {
+            Invocation::Shorten { url, server } => {
+                assert_eq!(url, None);
+                assert_eq!(server, None);
+            }
+            _ => panic!("expected Shorten"),
+        }
+    }
 }

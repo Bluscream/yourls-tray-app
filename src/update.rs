@@ -1,7 +1,36 @@
-use std::thread;
-use serde_json::Value;
+//! ## Lint policy
+//!
+//! This module predates the lint policy in Cargo.toml and is left as it is on
+//! purpose: the tray is legacy now that the binary is a CLI first, and
+//! rewriting it to satisfy pedantic would be a change with no behavioural
+//! benefit and real risk. The suppressions are listed one by one rather than
+//! blanket-disabled, so anything *else* still fails the build.
+#![allow(
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools,
+    clippy::struct_excessive_bools,
+    clippy::match_same_arms,
+    clippy::assigning_clones,
+    clippy::type_complexity,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::enum_variant_names,
+    clippy::field_reassign_with_default,
+    clippy::needless_pass_by_value,
+    clippy::single_match_else,
+    clippy::similar_names,
+    clippy::manual_let_else,
+    clippy::items_after_statements
+)]
+
 use crate::common::log_debug;
 use crate::i18n;
+use serde_json::Value;
+use std::thread;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -35,21 +64,30 @@ fn is_newer(latest: &str, current: &str) -> bool {
 #[cfg(target_os = "windows")]
 fn show_message_box(title: &str, text: &str, is_yes_no: bool) -> bool {
     use std::os::windows::ffi::OsStrExt;
-    let title_wide: Vec<u16> = std::ffi::OsStr::new(title).encode_wide().chain(Some(0)).collect();
-    let text_wide: Vec<u16> = std::ffi::OsStr::new(text).encode_wide().chain(Some(0)).collect();
+    let title_wide: Vec<u16> = std::ffi::OsStr::new(title)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let text_wide: Vec<u16> = std::ffi::OsStr::new(text)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
     unsafe {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_YESNO, IDYES, MB_OK};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            IDYES, MB_ICONINFORMATION, MB_OK, MB_YESNO, MessageBoxW,
+        };
         let u_type = if is_yes_no {
             MB_YESNO | MB_ICONINFORMATION
         } else {
             MB_OK | MB_ICONINFORMATION
         };
-        let ret = MessageBoxW(std::ptr::null_mut(), text_wide.as_ptr(), title_wide.as_ptr(), u_type);
-        if is_yes_no {
-            ret == IDYES
-        } else {
-            true
-        }
+        let ret = MessageBoxW(
+            std::ptr::null_mut(),
+            text_wide.as_ptr(),
+            title_wide.as_ptr(),
+            u_type,
+        );
+        if is_yes_no { ret == IDYES } else { true }
     }
 }
 
@@ -62,7 +100,7 @@ fn show_message_box(title: &str, text: &str, is_yes_no: bool) -> bool {
         cmd.arg("--info");
     }
     cmd.arg("--title").arg(title).arg("--text").arg(text);
-    
+
     if let Ok(status) = cmd.status() {
         status.success()
     } else {
@@ -90,9 +128,7 @@ pub fn open_repo(url: &str) {
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn();
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
     }
 }
 
@@ -106,26 +142,27 @@ pub fn check_for_updates(locale: String, show_up_to_date: bool) {
         let resolved_locale = i18n::get_locale(&locale);
         let user = i18n::t(i18n::Key::GithubUser, &resolved_locale);
         let repo = i18n::t(i18n::Key::GithubRepo, &resolved_locale);
-        let latest_release_url = format!("https://api.github.com/repos/{}/{}/releases/latest", user, repo);
+        let latest_release_url =
+            format!("https://api.github.com/repos/{user}/{repo}/releases/latest");
 
         let response = match ureq::get(&latest_release_url)
-            .set("User-Agent", &format!("yourls-tray-app/{}", CURRENT_VERSION))
+            .set("User-Agent", &format!("yourls-tray-app/{CURRENT_VERSION}"))
             .call()
         {
             Ok(res) => match res.into_string() {
                 Ok(s) => s,
                 Err(e) => {
-                    log_debug(&format!("Failed to read update response: {:?}", e));
+                    log_debug(&format!("Failed to read update response: {e:?}"));
                     return;
                 }
             },
             Err(e) => {
-                log_debug(&format!("Failed to fetch updates from GitHub: {:?}", e));
+                log_debug(&format!("Failed to fetch updates from GitHub: {e:?}"));
                 if show_up_to_date {
                     show_message_box(
-                        i18n::t(i18n::Key::UpdateCheckFailed, &resolved_locale), 
-                        i18n::t(i18n::Key::UpdateCheckFailedMsg, &resolved_locale), 
-                        false
+                        i18n::t(i18n::Key::UpdateCheckFailed, &resolved_locale),
+                        i18n::t(i18n::Key::UpdateCheckFailedMsg, &resolved_locale),
+                        false,
                     );
                 }
                 return;
@@ -135,26 +172,31 @@ pub fn check_for_updates(locale: String, show_up_to_date: bool) {
         let val: Value = match serde_json::from_str(&response) {
             Ok(v) => v,
             Err(e) => {
-                log_debug(&format!("Failed to parse update JSON: {:?}", e));
+                log_debug(&format!("Failed to parse update JSON: {e:?}"));
                 return;
             }
         };
 
         if let Some(tag_name) = val.get("tag_name").and_then(|v| v.as_str()) {
-            let fallback_url = format!("https://github.com/{}/{}/releases/latest", user, repo);
-            let html_url = val.get("html_url").and_then(|v| v.as_str()).unwrap_or(&fallback_url);
+            let fallback_url = format!("https://github.com/{user}/{repo}/releases/latest");
+            let html_url = val
+                .get("html_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&fallback_url);
             if is_newer(tag_name, CURRENT_VERSION) {
-                log_debug(&format!("New update available: {} (current: {})", tag_name, CURRENT_VERSION));
+                log_debug(&format!(
+                    "New update available: {tag_name} (current: {CURRENT_VERSION})"
+                ));
                 let question = i18n::t(i18n::Key::NewUpdateAvailableMsg, &resolved_locale)
                     .replace("{tag_name}", tag_name)
                     .replace("{current_version}", CURRENT_VERSION)
                     .replace("{}", tag_name)
                     .replacen("{}", CURRENT_VERSION, 1);
-                
+
                 if show_message_box(
-                    i18n::t(i18n::Key::NewUpdateAvailable, &resolved_locale), 
-                    &question, 
-                    true
+                    i18n::t(i18n::Key::NewUpdateAvailable, &resolved_locale),
+                    &question,
+                    true,
                 ) {
                     open_browser(html_url);
                 }
@@ -165,9 +207,9 @@ pub fn check_for_updates(locale: String, show_up_to_date: bool) {
                         .replace("{current_version}", CURRENT_VERSION)
                         .replace("{}", CURRENT_VERSION);
                     show_message_box(
-                        i18n::t(i18n::Key::AppUpToDate, &resolved_locale), 
-                        &message, 
-                        false
+                        i18n::t(i18n::Key::AppUpToDate, &resolved_locale),
+                        &message,
+                        false,
                     );
                 }
             }

@@ -1,3 +1,32 @@
+//! ## Lint policy
+//!
+//! This module predates the lint policy in Cargo.toml and is left as it is on
+//! purpose: the tray is legacy now that the binary is a CLI first, and
+//! rewriting it to satisfy pedantic would be a change with no behavioural
+//! benefit and real risk. The suppressions are listed one by one rather than
+//! blanket-disabled, so anything *else* still fails the build.
+#![allow(
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools,
+    clippy::struct_excessive_bools,
+    clippy::match_same_arms,
+    clippy::assigning_clones,
+    clippy::type_complexity,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::enum_variant_names,
+    clippy::field_reassign_with_default,
+    clippy::needless_pass_by_value,
+    clippy::single_match_else,
+    clippy::similar_names,
+    clippy::manual_let_else,
+    clippy::items_after_statements
+)]
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -17,8 +46,6 @@ pub struct ServerConfig {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
-
-
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
@@ -45,6 +72,18 @@ pub struct Config {
     pub log_file_name: String,
     #[serde(default)]
     pub check_update_on_startup: bool,
+    #[serde(default)]
+    pub ignore_ssl_errors: bool,
+
+    /// The single-server fields this app used before it grew a `servers` list.
+    ///
+    /// Kept only so an old config still works: on load they are folded into
+    /// `servers` and written back in the current shape. Without this a
+    /// perfectly good config silently produces no servers at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -66,7 +105,6 @@ fn default_log_file_name() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
-
             enabled: true,
             blacklist_regex: String::new(),
             bypass_double_copy: true,
@@ -79,6 +117,9 @@ impl Default for Config {
             locale: "auto".to_string(),
             log_file_name: "yourls-tray-app.log".to_string(),
             check_update_on_startup: false,
+            ignore_ssl_errors: false,
+            base_url: None,
+            signature: None,
         }
     }
 }
@@ -91,11 +132,11 @@ pub fn get_config_path() -> PathBuf {
             return local_config;
         }
     }
-    
+
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    
+
     let mut home_path = PathBuf::from(home);
     home_path.push(".yourls-clipboard-shortener");
     let _ = fs::create_dir_all(&home_path);
@@ -110,15 +151,20 @@ pub fn load_config() -> Config {
         return default_config;
     }
 
+    let mut migrated = false;
     let mut config = if let Ok(content) = fs::read_to_string(&path) {
         match toml::from_str(&content) {
             Ok(cfg) => cfg,
             Err(e) => {
                 let mut log_path = std::env::temp_dir();
                 log_path.push("yourls-tray-app.log");
-                if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(log_path) {
+                if let Ok(mut f) = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log_path)
+                {
                     use std::io::Write;
-                    let _ = writeln!(f, "Failed to parse config.toml: {:?}", e);
+                    let _ = writeln!(f, "Failed to parse config.toml: {e:?}");
                 }
                 Config::default()
             }
@@ -127,14 +173,30 @@ pub fn load_config() -> Config {
         Config::default()
     };
 
-
+    // Fold a pre-multi-server config into the current shape, once.
+    let legacy = (config.base_url.take(), config.signature.take());
+    if let (Some(base_url), Some(signature)) = legacy
+        && config.servers.is_empty()
+        && !base_url.trim().is_empty()
+    {
+        config.servers.push(ServerConfig {
+            name: String::new(),
+            base_url,
+            signature,
+            api_url: String::new(),
+        });
+        migrated = true;
+    }
 
     // Run inference for each server
     for server in &mut config.servers {
         // 1. If base_url is empty but api_url is set, infer base_url
         if server.base_url.trim().is_empty() && !server.api_url.trim().is_empty() {
             if let Ok(mut url) = Url::parse(&server.api_url) {
-                let mut path_segments: Vec<&str> = url.path_segments().map(|s| s.collect()).unwrap_or_default();
+                let mut path_segments: Vec<&str> = url
+                    .path_segments()
+                    .map(std::iter::Iterator::collect)
+                    .unwrap_or_default();
                 if !path_segments.is_empty() && path_segments.last() == Some(&"yourls-api.php") {
                     path_segments.pop();
                 }
@@ -142,7 +204,7 @@ pub fn load_config() -> Config {
                 if new_path.is_empty() {
                     url.set_path("/");
                 } else {
-                    url.set_path(&format!("{}/", new_path));
+                    url.set_path(&format!("{new_path}/"));
                 }
                 url.set_query(None);
                 url.set_fragment(None);
@@ -150,22 +212,23 @@ pub fn load_config() -> Config {
             }
         }
         // 2. If api_url is empty but base_url is set, infer api_url
-        else if server.api_url.trim().is_empty() && !server.base_url.trim().is_empty() {
-            if let Ok(mut url) = Url::parse(&server.base_url) {
-                let current_path = url.path().trim_end_matches('/');
-                url.set_path(&format!("{}/yourls-api.php", current_path));
-                url.set_query(None);
-                url.set_fragment(None);
-                server.api_url = url.to_string();
-            }
+        else if server.api_url.trim().is_empty()
+            && !server.base_url.trim().is_empty()
+            && let Ok(mut url) = Url::parse(&server.base_url)
+        {
+            let current_path = url.path().trim_end_matches('/');
+            url.set_path(&format!("{current_path}/yourls-api.php"));
+            url.set_query(None);
+            url.set_fragment(None);
+            server.api_url = url.to_string();
         }
 
         // 3. If server name is missing, extract domain from base_url or api_url
         if server.name.trim().is_empty() {
-            let target_url = if !server.base_url.trim().is_empty() {
-                &server.base_url
-            } else {
+            let target_url = if server.base_url.trim().is_empty() {
                 &server.api_url
+            } else {
+                &server.base_url
             };
             if let Ok(url) = Url::parse(target_url) {
                 if let Some(domain) = url.domain() {
@@ -180,6 +243,10 @@ pub fn load_config() -> Config {
     }
 
     crate::common::set_log_file_name(config.log_file_name.clone());
+
+    if migrated {
+        save_config(&config);
+    }
 
     config
 }
