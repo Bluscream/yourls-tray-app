@@ -576,13 +576,13 @@ mod tests {
     #[test]
     fn the_server_can_be_given_either_way_round() {
         for arguments in [
-            &["--server", "sari-ist-cute.de", "https://example.com"][..],
-            &["https://example.com", "--server=sari-ist-cute.de"][..],
+            &["--server", "sho.rt", "https://example.com"][..],
+            &["https://example.com", "--server=sho.rt"][..],
         ] {
             match parse(arguments) {
                 Invocation::Shorten { url, server, .. } => {
                     assert_eq!(url.as_deref(), Some("https://example.com"));
-                    assert_eq!(server.as_deref(), Some("sari-ist-cute.de"));
+                    assert_eq!(server.as_deref(), Some("sho.rt"));
                 }
                 _ => panic!("expected Shorten for {arguments:?}"),
             }

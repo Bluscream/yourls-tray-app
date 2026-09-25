@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=YOURLS Shortener
+Comment=Shorten links from the clipboard
+# The binary is a CLI first; the tray is opt-in. A desktop entry exists to
+# start the background tray, so it has to ask for it explicitly — without
+# --tray this would run the shortener with no URL and exit immediately.
+Exec=yourls --tray
+Icon=yourls
+Terminal=false
+# One main category only: two would list the app twice in some menus.
+Categories=Utility;
+Keywords=url;shortener;yourls;clipboard;
+StartupNotify=false

@@ -1,8 +1,32 @@
-# YOURLS Tray App [![Latest Release](https://img.shields.io/github/v/release/Bluscream/yourls-tray-app?label=version&style=flat-square)](https://github.com/Bluscream/yourls-tray-app/releases/latest) [![Total Downloads](https://img.shields.io/github/downloads/Bluscream/yourls-tray-app/total?style=flat-square&label=total%20downloads)](https://github.com/Bluscream/yourls-tray-app/releases)
+# yourls [![Latest Release](https://img.shields.io/github/v/release/Bluscream/yourls-tray-app?label=version&style=flat-square)](https://github.com/Bluscream/yourls-tray-app/releases/latest) [![Total Downloads](https://img.shields.io/github/downloads/Bluscream/yourls-tray-app/total?style=flat-square&label=total%20downloads)](https://github.com/Bluscream/yourls-tray-app/releases)
 
-A lightweight, cross-platform system tray application written in Rust for **Windows** and **Linux** (Wayland/X11) that monitors your clipboard for URLs and automatically shortens them using your personal [YOURLS](https://yourls.org) server.
+A URL shortener for your own [YOURLS](https://yourls.org) server, written in
+Rust for **Windows** and **Linux** (Wayland/X11).
+
+Give it a URL, it gives you a short one:
+
+```sh
+yourls https://example.com/a/very/long/address
+https://sho.rt/abc123
+```
+
+It is also a tray app, behind `--tray`, which watches the clipboard and
+replaces URLs as you copy them. That was the original program and it still
+works exactly as it did — it is just no longer the only way to use it.
 
 ## Features
+
+### Command line
+
+- **Shorten a URL**: `yourls <url>`, or from a pipe — only the short URL is
+  printed, so it composes with anything.
+- **Custom ids**: `--id my-link` asks for `https://sho.rt/my-link` instead of
+  a generated id. Also spelled `--keyword` (the API's own name) or `--slug`.
+- **Server selection**: `--server <name>` pins one request to one configured
+  instance; `auto`, or leaving it out, follows the config.
+- **Honest exit codes**: 0 on success, 1 on failure, 2 on a bad argument.
+
+### Tray (`--tray`)
 
 - **Automated URL Shortening**: Instantly detects absolute URLs copied to the clipboard and replaces them with a shortened link from your YOURLS server.
 - **Multiple YOURLS Servers**: Configure multiple servers and switch between them from the tray menu. Choose a specific server or let the app pick one at random.
@@ -31,18 +55,11 @@ A lightweight, cross-platform system tray application written in Rust for **Wind
 
 </details>
 
-## Installation & Setup
-
-### Windows
-
-1. Download `yourls-tray-app_win64-release.exe` (or `win32`) from the [Releases](https://github.com/Bluscream/yourls-tray-app/releases/latest) page.
-2. Run it once to generate a default `config.toml` in `%USERPROFILE%\.yourls-clipboard-shortener\`.
-3. Open the config via the tray menu → **Edit Configuration**, or navigate to the file directly.
-4. Fill in your server details and restart the app.
+## Installation
 
 ### Linux
 
-Install required system dependencies first:
+Install the system dependencies first — only the tray needs them:
 
 | Distribution | Command |
 | :--- | :--- |
@@ -51,12 +68,85 @@ Install required system dependencies first:
 | **Fedora / RHEL** | `sudo dnf install wl-clipboard xdotool` |
 | **Fedora Silverblue / Bazzite** | `sudo rpm-ostree install --apply-live wl-clipboard xdotool` |
 
-1. Download `yourls-tray-app_lin64-release` (ELF) or `yourls-tray-app_lin64-release.AppImage` from the [Releases](https://github.com/Bluscream/yourls-tray-app/releases/latest) page.
-2. Make it executable: `chmod +x yourls-tray-app_lin64-release`
-3. Run once to generate `~/.yourls-clipboard-shortener/config.toml`.
-4. Edit config via tray → **Edit Configuration** and restart.
+Then either run the installer from a clone:
 
-> **Tip**: The `config.toml` is also auto-discovered next to the executable, so you can keep app + config in the same folder for a portable setup.
+```sh
+./scripts/install.sh              # binary + menu entry
+./scripts/install.sh --autostart  # and start the tray at login
+./scripts/install.sh --uninstall  # remove all of it
+```
+
+or download from [Releases](https://github.com/Bluscream/yourls-tray-app/releases/latest):
+
+| Asset | What it is |
+| :--- | :--- |
+| `yourls_lin64-release.AppImage` | tray + CLI, dependencies bundled |
+| `yourls_lin64-release` | tray + CLI, plain binary |
+| `yourls-cli_lin64-release` | CLI only — no GTK, no X11, runs headless |
+
+The installer puts everything under `$HOME`: the binary in `~/.local/bin`, a
+menu entry in `~/.local/share/applications`, and with `--autostart` a
+`~/.config/autostart` entry. Both entries run `yourls --tray`.
+
+### Windows
+
+```powershell
+.\scripts\install.ps1              # binary + Start Menu entry
+.\scripts\install.ps1 -Autostart   # and start the tray at login
+.\scripts\install.ps1 -Uninstall   # remove all of it
+```
+
+Or download `yourls_win64-release.exe` (tray + CLI) or
+`yourls-cli_win64-release.exe` (CLI only) from the releases page.
+
+Installs to `%LOCALAPPDATA%\Programs\yourls`, adds it to your `PATH`, and
+creates shortcuts that pass `--tray`. No admin rights needed.
+
+### First run
+
+Run it once to generate a config:
+
+- **Linux**: `~/.yourls-clipboard-shortener/config.toml`
+- **Windows**: `%USERPROFILE%\.yourls-clipboard-shortener\config.toml`
+
+Fill in your server details. `yourls` tells you the exact path if no server is
+configured yet, and the tray has an **Edit Configuration** entry.
+
+> **Tip**: `config.toml` is also picked up from next to the executable, so app
+> and config can live in one folder for a portable setup.
+
+## Command line
+
+The binary is `yourls`. Shortening is what it does by default; the tray is
+opt-in.
+
+```sh
+yourls https://example.com/something        # prints the short URL
+echo https://example.com | yourls           # or read it from stdin
+yourls --server sho.rt <url>                # pin it to one configured server
+yourls --id my-link <url>                   # ask for a specific short id
+yourls --server auto <url>                  # or follow the config (the default)
+yourls --tray                               # run the clipboard tray
+```
+
+Only the short URL goes to standard output, so it composes:
+
+```sh
+yourls "$url" | wl-copy
+```
+
+`--id` (also `--keyword`, the API's own name, or `--slug`) asks for a specific
+short id instead of a generated one. It fails rather than quietly returning
+something else if that id is taken, or if the URL already has a different one.
+
+Errors go to standard error and exit 1; a bad argument exits 2. A URL matching
+`blacklist_regex` is printed back unchanged, so a pipe never loses it.
+
+Two builds are released. The default has the tray and works as a CLI too. The
+`-cli` one is built with `--no-default-features` and links no GTK,
+appindicator or libxdo at all — six libraries instead of seventy-two — so it
+runs on a machine with no desktop.
+
 
 ## Configuration Reference
 
@@ -135,67 +225,34 @@ signature = "another_signature_token_here"
 
 ## Building from Source
 
-Requires [Rust](https://rustup.rs) stable.
+Requires [Rust](https://rustup.rs) stable. The tray also needs GTK 3,
+libayatana-appindicator and libxdo headers; a CLI-only build needs none of
+them.
 
 ```bash
-# Windows (x64)
-cargo build --release
-
-# Windows (x86)
-cargo build --release --target i686-pc-windows-msvc
-
-# Linux
-./scripts/build.sh          # fmt + clippy + tests + release build
+./scripts/build.sh          # the gate: fmt, clippy, tests, both builds
 ./scripts/appimage.sh       # portable AppImage into dist/
+./scripts/windows.sh        # cross-compile the Windows binaries (mingw-w64)
+
+cargo build --release                        # tray + CLI
+cargo build --release --no-default-features  # CLI only, no GUI libraries
 ```
 
-`scripts/build.sh` is the gate; check its exit status directly rather than
-piping it into `grep`, which reports grep's status and lets a failing build
-through.
+`scripts/build.sh` is the gate. Check its exit status directly rather than
+piping it into `grep` — `build.sh | grep ok && git commit` reports grep's
+status, so a failing build gets committed anyway.
 
 `scripts/appimage.sh` compiles inside Ubuntu 20.04 (glibc 2.31) so the result
-runs on anything newer, and bundles the GTK/tray stack with linuxdeploy. Do
-not build Linux release artifacts on Alpine: a dynamically linked musl binary
-cannot start on a glibc desktop, which is what made every AppImage up to
-v1.0.5 unrunnable.
+runs on anything newer, bundles the GTK/tray stack with linuxdeploy, then
+starts the finished AppImage and fails if any library is unresolved. Do not
+build Linux artifacts on Alpine: a dynamically linked musl binary cannot start
+on a glibc desktop, which is what made every release up to v1.0.5 unrunnable.
 
-For a full automated build + release (Windows + Linux + AppImage + GitHub release):
+For a full build + release (Windows + Linux + AppImage + GitHub release):
+
 ```powershell
-.\tools\update.ps1 -Version "1.0.4" -CommitMessage "Your release notes here"
+.\tools\update.ps1 -Version "1.2.0" -CommitMessage "Your release notes here"
 ```
-
-## Command line
-
-The binary is `yourls`. Shortening is what it does by default; the tray is
-opt-in.
-
-```sh
-yourls https://example.com/something        # prints the short URL
-echo https://example.com | yourls           # or read it from stdin
-yourls --server sari-ist-cute.de <url>      # pin it to one configured server
-yourls --id my-link <url>                   # ask for a specific short id
-yourls --server auto <url>                  # or follow the config (the default)
-yourls --tray                               # run the clipboard tray
-```
-
-Only the short URL goes to standard output, so it composes:
-
-```sh
-yourls "$url" | wl-copy
-```
-
-`--id` (also `--keyword`, the API's own name, or `--slug`) asks for a specific
-short id instead of a generated one. It fails rather than quietly returning
-something else if that id is taken, or if the URL already has a different one.
-
-Errors go to standard error and exit 1; a bad argument exits 2. A URL matching
-`blacklist_regex` is printed back unchanged, so a pipe never loses it.
-
-Two builds are released. The default has the tray and works as a CLI too. The
-`-cli` one is built with `--no-default-features` and links no GTK,
-appindicator or libxdo at all — six libraries instead of seventy-two — so it
-runs on a machine with no desktop.
-
 
 ## Authors
 

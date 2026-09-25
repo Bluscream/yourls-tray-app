@@ -121,18 +121,10 @@ if command -v magick >/dev/null; then RASTERISE=(magick); else RASTERISE=(conver
 "${RASTERISE[@]}" "$PROJECT_DIR/src/icon.png" -resize 256x256 \
     "$APPDIR/usr/share/icons/hicolor/256x256/apps/yourls.png"
 
-cat > "$APPDIR/usr/share/applications/yourls.desktop" <<'DESKTOP'
-[Desktop Entry]
-Name=YOURLS Shortener
-# The binary is a CLI first; the tray is opt-in behind --tray, so the desktop
-# entry — which exists to launch a background tray — has to ask for it.
-Exec=yourls --tray
-Icon=yourls
-Type=Application
-Categories=Utility;
-Terminal=false
-Comment=Shorten links from the clipboard
-DESKTOP
+# One desktop entry, shared with scripts/install.sh, so the AppImage and an
+# installed copy cannot drift apart over something like the --tray argument.
+install -m644 "$PROJECT_DIR/packaging/yourls.desktop" \
+    "$APPDIR/usr/share/applications/yourls.desktop"
 
 echo "==> bundling dependencies"
 # linuxdeploy walks ldd and copies in everything that is not part of the
