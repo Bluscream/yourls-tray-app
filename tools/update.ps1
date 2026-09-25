@@ -24,11 +24,17 @@ $BadgeStyle   = "style=flat-square"
 # Release asset definitions
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Two builds of everything. The default one has the tray and works as a CLI
+# too; the -cli one is built with --no-default-features and links no GTK,
+# appindicator or libxdo at all, so it runs on a machine with no desktop.
 $ReleaseAssets = @(
-    @{ FileName = "yourls-tray-app_win64-release.exe";       Label = "win64";            Description = "Windows 64-bit" }
-    @{ FileName = "yourls-tray-app_win32-release.exe";       Label = "win32";            Description = "Windows 32-bit" }
-    @{ FileName = "yourls-tray-app_lin64-release";           Label = "linux64";          Description = "Linux 64-bit" }
-    @{ FileName = "yourls-tray-app_lin64-release.AppImage";  Label = "linux64-appimage"; Description = "Linux 64-bit AppImage" }
+    @{ FileName = "yourls_win64-release.exe";           Label = "win64";            Description = "Windows 64-bit (tray + CLI)" }
+    @{ FileName = "yourls-cli_win64-release.exe";       Label = "win64-cli";        Description = "Windows 64-bit (CLI only)" }
+    @{ FileName = "yourls_win32-release.exe";           Label = "win32";            Description = "Windows 32-bit (tray + CLI)" }
+    @{ FileName = "yourls-cli_win32-release.exe";       Label = "win32-cli";        Description = "Windows 32-bit (CLI only)" }
+    @{ FileName = "yourls_lin64-release";               Label = "linux64";          Description = "Linux 64-bit (tray + CLI)" }
+    @{ FileName = "yourls-cli_lin64-release";           Label = "linux64-cli";      Description = "Linux 64-bit (CLI only, no GUI libraries)" }
+    @{ FileName = "yourls_lin64-release.AppImage";      Label = "linux64-appimage"; Description = "Linux 64-bit AppImage (tray + CLI)" }
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -133,9 +139,11 @@ rustup target add i686-pc-windows-msvc
 
 Step "Building Windows x64..."
 cargo build --release --target x86_64-pc-windows-msvc
+cargo build --release --no-default-features --target x86_64-pc-windows-msvc --target-dir target\cli-only
 
 Step "Building Windows x86..."
 cargo build --release --target i686-pc-windows-msvc
+cargo build --release --no-default-features --target i686-pc-windows-msvc --target-dir target\cli-only
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Ensure WSL Alpine is available
@@ -178,15 +186,18 @@ InvokeWsl "cd $WslRepo && ./update.sh"
 
 Step "Copying compiled Linux binaries back to host..."
 New-Item -ItemType Directory -Force -Path $HostTarget | Out-Null
-InvokeWsl "cp ~/yourls-tray-app/target/release/yourls                       '$WslTarget/yourls-tray-app_lin64-release'"
-InvokeWsl "cp ~/yourls-tray-app/dist/yourls-*-x86_64.AppImage               '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
+InvokeWsl "cp ~/yourls-tray-app/dist/yourls_lin64-release                   '$WslTarget/yourls_lin64-release'"
+InvokeWsl "cp ~/yourls-tray-app/dist/yourls-cli_lin64-release               '$WslTarget/yourls-cli_lin64-release'"
+InvokeWsl "cp ~/yourls-tray-app/dist/yourls_lin64-release.AppImage          '$WslTarget/yourls_lin64-release.AppImage'"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. Rename Windows binaries
 # ─────────────────────────────────────────────────────────────────────────────
 
-Copy-Item "target\x86_64-pc-windows-msvc\release\yourls-tray-app.exe" "$HostTarget\yourls-tray-app_win64-release.exe" -Force
-Copy-Item "target\i686-pc-windows-msvc\release\yourls-tray-app.exe"   "$HostTarget\yourls-tray-app_win32-release.exe" -Force
+Copy-Item "target\x86_64-pc-windows-msvc\release\yourls.exe"          "$HostTarget\yourls_win64-release.exe" -Force
+Copy-Item "target\i686-pc-windows-msvc\release\yourls.exe"            "$HostTarget\yourls_win32-release.exe" -Force
+Copy-Item "target\cli-only\x86_64-pc-windows-msvc\release\yourls.exe" "$HostTarget\yourls-cli_win64-release.exe" -Force
+Copy-Item "target\cli-only\i686-pc-windows-msvc\release\yourls.exe"   "$HostTarget\yourls-cli_win32-release.exe" -Force
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. Commit, tag and push

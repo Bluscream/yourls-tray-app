@@ -76,9 +76,10 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
             # The tray needs the whole GTK/appindicator stack, and enigo
-            # links -lxdo. libssl-dev is deliberately absent: the release
-            # build vendors OpenSSL so the AppImage does not depend on
-            # whichever libssl the target happens to have.
+            # links -lxdo. libssl-dev is deliberately absent: OpenSSL is
+            # vendored (see Cargo.toml), so it is compiled from source here
+            # and the result depends on no system libssl at all. perl and
+            # make, above, are what that build needs.
             apt-get install -y -qq --no-install-recommends \
                 build-essential curl ca-certificates pkg-config perl make file \
                 libgtk-3-dev libayatana-appindicator3-dev libxdo-dev \
@@ -92,6 +93,11 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
             fi
             export PATH=/cargo/bin:$PATH
             cargo build --release --bin yourls
+            # The headless build, released alongside the tray one. A separate
+            # target directory because the two differ only by feature flags,
+            # and cargo would otherwise rebuild over the top of each other.
+            CARGO_TARGET_DIR=/src/target/appimage-cli \
+                cargo build --release --no-default-features --bin yourls
         '
 fi
 
@@ -108,7 +114,11 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
 
 install -m755 "$BIN_DIR/yourls" "$APPDIR/usr/bin/yourls"
 strip "$APPDIR/usr/bin/yourls" 2>/dev/null || true
-install -m644 "$PROJECT_DIR/src/icon.png" \
+# src/icon.png is 1024x1024, and linuxdeploy rejects an icon whose real size
+# does not match the directory it sits in. ImageMagick 7 renamed the tool, so
+# both spellings are around.
+if command -v magick >/dev/null; then RASTERISE=(magick); else RASTERISE=(convert); fi
+"${RASTERISE[@]}" "$PROJECT_DIR/src/icon.png" -resize 256x256 \
     "$APPDIR/usr/share/icons/hicolor/256x256/apps/yourls.png"
 
 cat > "$APPDIR/usr/share/applications/yourls.desktop" <<'DESKTOP'
@@ -150,6 +160,13 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 export PATH="$TOOL_DIR:$PATH"
 export DEPLOY_GTK_VERSION=3
 
+mkdir -p "$OUT_DIR"
+OUTPUT_PATH="$OUT_DIR/yourls-$VERSION-$ARCH.AppImage"
+# Without OUTPUT, linuxdeploy names the file after the desktop entry and
+# writes it to whatever it considers the working directory — which turned out
+# to be $HOME, not here.
+export OUTPUT="$OUTPUT_PATH"
+
 "$TOOL_DIR/linuxdeploy-$ARCH.AppImage" \
     --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/yourls" \
@@ -158,16 +175,44 @@ export DEPLOY_GTK_VERSION=3
     --plugin gtk \
     --output appimage
 
-echo "==> packing"
-mkdir -p "$OUT_DIR"
-OUTPUT="$OUT_DIR/yourls-$VERSION-$ARCH.AppImage"
-# linuxdeploy writes its output into the working directory under a name of its
-# own choosing; move it to the versioned name the release expects.
-mv -f "$PROJECT_DIR"/*.AppImage "$OUTPUT" 2>/dev/null || \
-    mv -f ./*.AppImage "$OUTPUT"
+OUTPUT="$OUTPUT_PATH"
+if [[ ! -f "$OUTPUT" ]]; then
+    echo "linuxdeploy did not produce $OUTPUT" >&2
+    exit 1
+fi
 
 echo "==> built $OUTPUT"
 ls -lh "$OUTPUT"
+
+# Both binaries ship: the AppImage and the plain tray build for anyone who
+# does not want one, plus the CLI-only build for machines with no desktop.
+echo "==> collecting the plain binaries"
+install -m755 "$BIN_DIR/yourls" "$OUT_DIR/yourls-$VERSION-$ARCH"
+strip "$OUT_DIR/yourls-$VERSION-$ARCH" 2>/dev/null || true
+
+CLI_BIN="${YOURLS_CLI_BIN_DIR:-$PROJECT_DIR/target/appimage-cli/release}/yourls"
+if [[ -x "$CLI_BIN" ]]; then
+    install -m755 "$CLI_BIN" "$OUT_DIR/yourls-cli-$VERSION-$ARCH"
+    strip "$OUT_DIR/yourls-cli-$VERSION-$ARCH" 2>/dev/null || true
+    # The whole point of that build, so prove it rather than assume it.
+    if ldd "$OUT_DIR/yourls-cli-$VERSION-$ARCH" | grep -qiE 'gtk|gdk|appindicator|libxdo'; then
+        echo "FAILED: the CLI-only build still links a GUI library" >&2
+        exit 1
+    fi
+    echo "    yourls-cli-$VERSION-$ARCH links $(ldd "$OUT_DIR/yourls-cli-$VERSION-$ARCH" | wc -l) libraries, none of them GUI"
+else
+    echo "    no CLI-only binary at $CLI_BIN; skipping" >&2
+fi
+
+# Fixed names as well as versioned ones. tools/update.ps1 copies these by
+# exact name: a `yourls-*` glob would match the CLI build too and copy two
+# files onto one destination.
+echo "==> release names"
+cp -f "$OUTPUT" "$OUT_DIR/yourls_lin64-release.AppImage"
+cp -f "$OUT_DIR/yourls-$VERSION-$ARCH" "$OUT_DIR/yourls_lin64-release"
+[[ -f "$OUT_DIR/yourls-cli-$VERSION-$ARCH" ]] && \
+    cp -f "$OUT_DIR/yourls-cli-$VERSION-$ARCH" "$OUT_DIR/yourls-cli_lin64-release"
+ls -1 "$OUT_DIR"
 
 # A bundled AppImage that still needs something from the host is the exact bug
 # this script exists to fix, so prove it before calling it done.

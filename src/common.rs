@@ -74,7 +74,9 @@ pub fn log_debug(msg: &str) {
         .open(log_path)
     {
         use std::io::Write;
-        let _ = writeln!(f, "{msg}");
+        // Redacted here, at the one place everything funnels through, rather
+        // than at each caller: several of them log whole API URLs.
+        let _ = writeln!(f, "{}", redact_secrets(msg));
     }
 }
 
@@ -134,13 +136,55 @@ pub fn get_agent(ignore_ssl: bool) -> ureq::Agent {
 
     let mut builder = ureq::builder().resolver(V4Resolver);
 
+    // A TLS connector is installed either way. ureq is built with
+    // default-features off and only the native-tls feature, which registers
+    // no backend by itself: without this, every https:// request fails with
+    // "cannot make HTTPS request because no TLS backend is configured".
+    //
+    // This used to happen only in the ignore_ssl branch, so the app could
+    // reach a YOURLS instance exclusively with certificate checking turned
+    // off — the one configuration nobody should be using.
+    let mut tls_connector = native_tls::TlsConnector::builder();
     if ignore_ssl {
-        let mut tls_connector = native_tls::TlsConnector::builder();
         tls_connector.danger_accept_invalid_certs(true);
         tls_connector.danger_accept_invalid_hostnames(true);
-        if let Ok(connector) = tls_connector.build() {
-            builder = builder.tls_connector(std::sync::Arc::new(connector));
-        }
+    }
+    match tls_connector.build() {
+        Ok(connector) => builder = builder.tls_connector(std::sync::Arc::new(connector)),
+        Err(e) => log_debug(&format!("could not build a TLS connector: {e}")),
     }
     builder.build()
+}
+
+/// Replaces API signatures in `text` with a placeholder.
+///
+/// A YOURLS signature is a credential and it travels in the query string, so
+/// any URL that reaches a log file, an error message or a terminal carries it
+/// in the clear. This is applied on the way out rather than at each call site,
+/// because the call sites are the places that keep forgetting.
+#[must_use]
+pub fn redact_secrets(text: &str) -> String {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| {
+        // A literal pattern: if this does not compile it is a bug in this
+        // line, and it is caught by the test below rather than at runtime.
+        regex::Regex::new(r"(?i)(signature=)[^&\s]+").expect("the redaction pattern is valid")
+    });
+    pattern.replace_all(text, "${1}<redacted>").into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_secrets;
+
+    #[test]
+    fn the_redaction_pattern_compiles_and_hides_the_signature() {
+        let redacted = redact_secrets("?signature=abc123&action=stats");
+        assert_eq!(redacted, "?signature=<redacted>&action=stats");
+    }
+
+    #[test]
+    fn text_without_a_signature_is_untouched() {
+        assert_eq!(redact_secrets("nothing secret here"), "nothing secret here");
+    }
 }

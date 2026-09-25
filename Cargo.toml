@@ -47,7 +47,12 @@ tray = [
 [dependencies]
 # Needed by every build: configuration, logging and the API call itself.
 ureq = { version = "2.10.1", default-features = false, features = ["native-tls"] }
-native-tls = "0.2"
+# Vendored on purpose: OpenSSL is compiled into the binary rather than linked
+# against whatever the machine has. A release built on an old distribution
+# would otherwise need that distribution's libssl (1.1 on Ubuntu 20.04), which
+# no current system ships — and the plain, un-bundled CLI binary has no
+# AppImage around it to carry one.
+native-tls = { version = "0.2", features = ["vendored"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 url = "2.5"

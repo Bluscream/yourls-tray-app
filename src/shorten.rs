@@ -46,10 +46,7 @@ impl std::fmt::Display for ShortenError {
                 crate::config::get_config_path().display()
             ),
             Self::UnknownServer(name) => {
-                write!(
-                    f,
-                    "`selected_server` names `{name}`, which is not configured"
-                )
+                write!(f, "no server named `{name}` is configured")
             }
             Self::IncompleteServer(name) => {
                 write!(f, "server `{name}` is missing its api_url or signature")
@@ -170,18 +167,30 @@ pub fn shorten(url: &Url, config: &Config, server: Option<&str>) -> Result<Strin
         primary.api_url, primary.signature, encoded
     );
 
-    let reply = agent
-        .get(&endpoint)
-        .timeout(TIMEOUT)
-        .call()
-        .map_err(|e| ShortenError::Request {
-            server: primary.name.clone(),
-            detail: e.to_string(),
-        })?
+    // The Ok and Status arms deliberately do the same thing: a URL this
+    // instance already knows comes back as 409 with the existing short URL as
+    // the body, which is the answer the caller wanted. Shortening the same
+    // link twice should be idempotent, and ureq classifies every 4xx as an
+    // error.
+    #[allow(clippy::match_same_arms)]
+    let response = match agent.get(&endpoint).timeout(TIMEOUT).call() {
+        Ok(response) => response,
+        Err(ureq::Error::Status(_, response)) => response,
+        Err(e) => {
+            return Err(ShortenError::Request {
+                server: primary.name.clone(),
+                // ureq quotes the whole request URL, signature included, and
+                // this text goes to a terminal or a log.
+                detail: crate::common::redact_secrets(&e.to_string()),
+            });
+        }
+    };
+
+    let reply = response
         .into_string()
         .map_err(|e| ShortenError::Request {
             server: primary.name.clone(),
-            detail: e.to_string(),
+            detail: crate::common::redact_secrets(&e.to_string()),
         })?
         .trim()
         .to_string();
@@ -232,7 +241,11 @@ fn mirror(
         );
         let outcome = match agent.get(&endpoint).timeout(TIMEOUT).call() {
             Ok(_) => format!("mirrored {slug} to {}", server.name),
-            Err(e) => format!("could not mirror to {}: {e}", server.name),
+            Err(e) => format!(
+                "could not mirror to {}: {}",
+                server.name,
+                crate::common::redact_secrets(&e.to_string())
+            ),
         };
         crate::common::log_debug(&outcome);
     }
@@ -336,6 +349,15 @@ mod tests {
                 "{allowed} should not be blacklisted"
             );
         }
+    }
+
+    #[test]
+    fn a_signature_never_reaches_an_error_message() {
+        let text = "https://x/yourls-api.php?signature=deadbeef1234&action=shorturl";
+        let redacted = crate::common::redact_secrets(text);
+        assert!(!redacted.contains("deadbeef1234"), "{redacted}");
+        assert!(redacted.contains("signature=<redacted>"), "{redacted}");
+        assert!(redacted.contains("action=shorturl"), "{redacted}");
     }
 
     #[test]
