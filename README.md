@@ -59,7 +59,37 @@ works exactly as it did — it is just no longer the only way to use it.
 
 ### Linux
 
-Install the system dependencies first — only the tray needs them:
+One line, which picks the build that suits the machine:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Bluscream/yourls-tray-app/main/scripts/install.sh | bash
+```
+
+With shortcuts, and the tray started at login:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Bluscream/yourls-tray-app/main/scripts/install.sh \
+  | bash -s -- --start-menu-shortcut --autostart-tray
+```
+
+| Option | What it does |
+| :--- | :--- |
+| `--start-menu-shortcut` | an entry in the application menu |
+| `--desktop-shortcut` | a shortcut on the desktop |
+| `--autostart-tray` | starts the tray at login |
+| `--uninstall` | removes everything it installed |
+
+It works from a clone too (`./scripts/install.sh`), where it installs the
+local build instead of downloading one. Everything goes under `$HOME` — no
+root, no system directories — and your config is never touched, including by
+`--uninstall`.
+
+**What it installs.** With a desktop session and GTK present, the plain
+binary. With a desktop but no GTK, the AppImage, which bundles it. With no
+desktop session at all, the CLI-only build. If nothing fits, it says why and
+links to the issue tracker rather than installing something that cannot run.
+
+The tray needs these at runtime; the CLI-only build needs none of them:
 
 | Distribution | Command |
 | :--- | :--- |
@@ -68,15 +98,8 @@ Install the system dependencies first — only the tray needs them:
 | **Fedora / RHEL** | `sudo dnf install wl-clipboard xdotool` |
 | **Fedora Silverblue / Bazzite** | `sudo rpm-ostree install --apply-live wl-clipboard xdotool` |
 
-Then either run the installer from a clone:
-
-```sh
-./scripts/install.sh              # binary + menu entry
-./scripts/install.sh --autostart  # and start the tray at login
-./scripts/install.sh --uninstall  # remove all of it
-```
-
-or download from [Releases](https://github.com/Bluscream/yourls-tray-app/releases/latest):
+Or download an asset by hand from
+[Releases](https://github.com/Bluscream/yourls-tray-app/releases/latest):
 
 | Asset | What it is |
 | :--- | :--- |
@@ -84,23 +107,21 @@ or download from [Releases](https://github.com/Bluscream/yourls-tray-app/release
 | `yourls_lin64-release` | tray + CLI, plain binary |
 | `yourls-cli_lin64-release` | CLI only — no GTK, no X11, runs headless |
 
-The installer puts everything under `$HOME`: the binary in `~/.local/bin`, a
-menu entry in `~/.local/share/applications`, and with `--autostart` a
-`~/.config/autostart` entry. Both entries run `yourls --tray`.
-
 ### Windows
 
 ```powershell
-.\scripts\install.ps1              # binary + Start Menu entry
-.\scripts\install.ps1 -Autostart   # and start the tray at login
-.\scripts\install.ps1 -Uninstall   # remove all of it
+irm https://raw.githubusercontent.com/Bluscream/yourls-tray-app/main/scripts/install.ps1 | iex
 ```
 
-Or download `yourls_win64-release.exe` (tray + CLI) or
-`yourls-cli_win64-release.exe` (CLI only) from the releases page.
+With options, which `iex` cannot pass on its own:
 
-Installs to `%LOCALAPPDATA%\Programs\yourls`, adds it to your `PATH`, and
-creates shortcuts that pass `--tray`. No admin rights needed.
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Bluscream/yourls-tray-app/main/scripts/install.ps1))) -StartMenuShortcut -AutostartTray
+```
+
+`-StartMenuShortcut`, `-DesktopShortcut`, `-AutostartTray` and `-Uninstall`
+match the Linux options. Installs to `%LOCALAPPDATA%\Programs\yourls`, adds
+it to your `PATH`, and every shortcut passes `--tray`. No admin rights.
 
 ### First run
 
