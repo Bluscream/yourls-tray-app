@@ -250,6 +250,7 @@ enum Invocation {
     Shorten {
         url: Option<String>,
         server: Option<String>,
+        id: Option<String>,
     },
     Tray,
     Help,
@@ -261,13 +262,21 @@ enum Invocation {
 fn parse_arguments(arguments: &[String]) -> Invocation {
     let mut url = None;
     let mut server = None;
-    let mut wants_server = false;
+    let mut id = None;
+    // Which flag is waiting for its value, if any.
+    let mut wants: Option<&str> = None;
 
     for argument in arguments {
-        if wants_server {
-            server = Some(argument.clone());
-            wants_server = false;
-            continue;
+        match wants.take() {
+            Some("--server") => {
+                server = Some(argument.clone());
+                continue;
+            }
+            Some("--id") => {
+                id = Some(argument.clone());
+                continue;
+            }
+            Some(_) | None => {}
         }
         match argument.as_str() {
             "--tray" | "-t" => return Invocation::Tray,
@@ -277,21 +286,37 @@ fn parse_arguments(arguments: &[String]) -> Invocation {
             // anyway, and it reads well in a config file that spells out what
             // the command is for.
             "--shorten" | "-s" => {}
-            "--server" => wants_server = true,
+            "--server" => wants = Some("--server"),
+            // --keyword is the API's own name for it, --slug is what the
+            // rest of the world calls the last part of a short URL.
+            "--id" | "--keyword" | "--slug" => wants = Some("--id"),
             // Both spellings, because `--server=x` is what anyone writes in a
             // config file and silently treating it as the URL would be worse
             // than any error.
             other if other.starts_with("--server=") => {
                 server = Some(other["--server=".len()..].to_string());
             }
+            other if other.starts_with("--id=") => {
+                id = Some(other["--id=".len()..].to_string());
+            }
+            other if other.starts_with("--keyword=") => {
+                id = Some(other["--keyword=".len()..].to_string());
+            }
+            other if other.starts_with("--slug=") => {
+                id = Some(other["--slug=".len()..].to_string());
+            }
             other => url = Some(other.to_string()),
         }
     }
 
-    if wants_server {
-        return Invocation::Invalid("--server needs a name (or `auto`)".to_string());
+    match wants {
+        Some("--server") => {
+            return Invocation::Invalid("--server needs a name (or `auto`)".to_string());
+        }
+        Some(flag) => return Invocation::Invalid(format!("{flag} needs a value")),
+        None => {}
     }
-    Invocation::Shorten { url, server }
+    Invocation::Shorten { url, server, id }
 }
 
 const USAGE: &str = "\
@@ -308,6 +333,10 @@ Options:
   --server <name>     use that configured server. `auto`, or leaving it out,
                       follows the config's own choice — which spreads links
                       across every configured server unless it names one.
+  --id <id>           ask for a specific short id instead of a generated one,
+                      so the result is <base>/<id>. Also spelled --keyword
+                      (the API's own name) or --slug. Fails if the id is
+                      taken, or if this URL already has a different one.
 
 The short URL is printed on standard output and nothing else is, so this can
 be used in a pipe. Errors go to standard error and exit with status 1.
@@ -335,8 +364,8 @@ fn main() {
         }
         Invocation::Help => println!("{USAGE}"),
         Invocation::Version => println!("yourls {}", env!("CARGO_PKG_VERSION")),
-        Invocation::Shorten { url, server } => {
-            if let Err(e) = run_shorten(url.as_deref(), server.as_deref()) {
+        Invocation::Shorten { url, server, id } => {
+            if let Err(e) = run_shorten(url.as_deref(), server.as_deref(), id.as_deref()) {
                 eprintln!("yourls: {e}");
                 std::process::exit(1);
             }
@@ -352,6 +381,7 @@ fn main() {
 fn run_shorten(
     argument: Option<&str>,
     server: Option<&str>,
+    id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let input = if let Some(url) = argument {
         url.to_string()
@@ -387,7 +417,7 @@ fn run_shorten(
         return Ok(());
     }
 
-    let short = shorten::shorten(&url, &config, server)?;
+    let short = shorten::shorten(&url, &config, server, id)?;
     println!("{short}");
     Ok(())
 }
@@ -534,9 +564,10 @@ mod tests {
     #[test]
     fn a_bare_url_is_shortened_with_no_server_preference() {
         match parse(&["https://example.com"]) {
-            Invocation::Shorten { url, server } => {
+            Invocation::Shorten { url, server, id } => {
                 assert_eq!(url.as_deref(), Some("https://example.com"));
                 assert_eq!(server, None);
+                assert_eq!(id, None);
             }
             _ => panic!("expected Shorten"),
         }
@@ -549,7 +580,7 @@ mod tests {
             &["https://example.com", "--server=sari-ist-cute.de"][..],
         ] {
             match parse(arguments) {
-                Invocation::Shorten { url, server } => {
+                Invocation::Shorten { url, server, .. } => {
                     assert_eq!(url.as_deref(), Some("https://example.com"));
                     assert_eq!(server.as_deref(), Some("sari-ist-cute.de"));
                 }
@@ -577,6 +608,46 @@ mod tests {
     }
 
     #[test]
+    fn an_id_can_be_given_either_way_round_and_under_both_names() {
+        for arguments in [
+            &["--id", "mine", "https://example.com"][..],
+            &["https://example.com", "--id=mine"][..],
+            &["--keyword", "mine", "https://example.com"][..],
+            &["https://example.com", "--keyword=mine"][..],
+            &["--slug", "mine", "https://example.com"][..],
+            &["https://example.com", "--slug=mine"][..],
+        ] {
+            match parse(arguments) {
+                Invocation::Shorten { url, id, .. } => {
+                    assert_eq!(url.as_deref(), Some("https://example.com"));
+                    assert_eq!(id.as_deref(), Some("mine"), "{arguments:?}");
+                }
+                _ => panic!("expected Shorten for {arguments:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn an_id_and_a_server_can_be_given_together() {
+        match parse(&["--server", "a.de", "--id", "mine", "https://example.com"]) {
+            Invocation::Shorten { url, server, id } => {
+                assert_eq!(url.as_deref(), Some("https://example.com"));
+                assert_eq!(server.as_deref(), Some("a.de"));
+                assert_eq!(id.as_deref(), Some("mine"));
+            }
+            _ => panic!("expected Shorten"),
+        }
+    }
+
+    #[test]
+    fn an_id_with_no_value_is_an_error() {
+        assert!(matches!(
+            parse(&["https://example.com", "--id"]),
+            Invocation::Invalid(_)
+        ));
+    }
+
+    #[test]
     fn the_modes_are_recognised() {
         assert!(matches!(parse(&["--tray"]), Invocation::Tray));
         assert!(matches!(parse(&["-t"]), Invocation::Tray));
@@ -587,9 +658,10 @@ mod tests {
     #[test]
     fn no_arguments_reads_standard_input() {
         match parse(&[]) {
-            Invocation::Shorten { url, server } => {
+            Invocation::Shorten { url, server, id } => {
                 assert_eq!(url, None);
                 assert_eq!(server, None);
+                assert_eq!(id, None);
             }
             _ => panic!("expected Shorten"),
         }

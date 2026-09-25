@@ -173,6 +173,7 @@ opt-in.
 yourls https://example.com/something        # prints the short URL
 echo https://example.com | yourls           # or read it from stdin
 yourls --server sari-ist-cute.de <url>      # pin it to one configured server
+yourls --id my-link <url>                   # ask for a specific short id
 yourls --server auto <url>                  # or follow the config (the default)
 yourls --tray                               # run the clipboard tray
 ```
@@ -182,6 +183,10 @@ Only the short URL goes to standard output, so it composes:
 ```sh
 yourls "$url" | wl-copy
 ```
+
+`--id` (also `--keyword`, the API's own name, or `--slug`) asks for a specific
+short id instead of a generated one. It fails rather than quietly returning
+something else if that id is taken, or if the URL already has a different one.
 
 Errors go to standard error and exit 1; a bad argument exits 2. A URL matching
 `blacklist_regex` is printed back unchanged, so a pipe never loses it.

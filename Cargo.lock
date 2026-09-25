@@ -3111,7 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "yourls-tray-app"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "arboard",
  "chrono",

@@ -60,8 +60,11 @@ function Get-AssetShield([hashtable]$Asset, [string]$Tag) {
     return "[![]($url)](https://github.com/${Repo}/releases/download/${Tag}/${fileName})"
 }
 
-function Get-TotalShield {
-    return "[![Downloads](${BadgeBase}/total?${BadgeStyle}&label=total+downloads)](https://github.com/${Repo}/releases)"
+function Get-TotalShield([string]$Tag) {
+    # Downloads of THIS release's assets. The bare .../total counts every
+    # release ever, which belongs on the README next to the title, not here —
+    # in release notes it just tells the reader how popular the project is.
+    return "[![Downloads](${BadgeBase}/${Tag}/total?${BadgeStyle}&label=downloads)](https://github.com/${Repo}/releases/tag/${Tag})"
 }
 
 function Get-AssetLine([hashtable]$Asset, [string]$Tag) {
@@ -69,7 +72,7 @@ function Get-AssetLine([hashtable]$Asset, [string]$Tag) {
 }
 
 function Build-ReleaseNotes([string]$Tag, [string]$ChangeLog) {
-    $totalShield = Get-TotalShield
+    $totalShield = Get-TotalShield $Tag
     $assetLines = @()
     foreach ($asset in $ReleaseAssets) {
         $assetLines += Get-AssetLine $asset $Tag

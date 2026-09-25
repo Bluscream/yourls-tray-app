@@ -206,7 +206,8 @@ pub fn process_clipboard_text(
     // read the answer" would drift, and only one of them would be exercised.
     // No override: the tray picks its server from the menu, which is what
     // `selected_server` in the config already holds.
-    let response = match crate::shorten::shorten(&parsed_url, &config, None) {
+    let response = match // No override for either: the tray has no way to ask for an id.
+    crate::shorten::shorten(&parsed_url, &config, None, None) {
         Ok(short) => short,
         Err(e) => {
             log_debug(&format!("could not shorten {text}: {e}"));

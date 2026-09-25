@@ -17,6 +17,18 @@ pub enum ShortenError {
     NotAUrl(String),
     /// The configured `blacklist_regex` is not a valid regular expression.
     BadBlacklist(String),
+    /// The requested custom id cannot be part of a short URL.
+    InvalidId(String),
+    /// A custom id was asked for and the instance returned a different one.
+    IdNotUsed {
+        requested: String,
+        got: String,
+    },
+    /// A custom id was asked for and some other URL already has it.
+    IdTaken {
+        server: String,
+        id: String,
+    },
     NoServers,
     UnknownServer(String),
     IncompleteServer(String),
@@ -34,6 +46,21 @@ impl std::fmt::Display for ShortenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotAUrl(text) => write!(f, "not a URL: {text}"),
+            Self::InvalidId(id) => write!(
+                f,
+                "`{id}` cannot be used as an id: it must not be empty or contain \
+                 spaces, `/`, `?`, `&` or `#`"
+            ),
+            Self::IdTaken { server, id } => write!(
+                f,
+                "{server} already has a different URL under the id `{id}`"
+            ),
+            Self::IdNotUsed { requested, got } => write!(
+                f,
+                "this URL is already shortened as `{got}`, so it did not get the \
+                 id `{requested}`. Delete the existing one first, or shorten a \
+                 different URL."
+            ),
             Self::BadBlacklist(detail) => {
                 write!(
                     f,
@@ -78,6 +105,32 @@ pub fn parse_url(text: &str) -> Result<Url, ShortenError> {
         return Err(ShortenError::NotAUrl(text.to_string()));
     }
     Ok(url)
+}
+
+/// The last path segment of a short URL — its id, as YOURLS calls a keyword.
+fn slug_of(short_url: &str) -> &str {
+    short_url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+}
+
+/// Whether `id` can be used as a YOURLS keyword.
+///
+/// Deliberately permissive: which characters an instance accepts depends on
+/// its own configuration, so this only rejects what could not possibly work —
+/// an empty id, or one carrying characters that would change the shape of the
+/// URL or the query string it travels in.
+fn check_id(id: &str) -> Result<(), ShortenError> {
+    if id.is_empty()
+        || id
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '/' | '?' | '&' | '#'))
+    {
+        return Err(ShortenError::InvalidId(id.to_string()));
+    }
+    Ok(())
 }
 
 /// Whether `url` is one the user asked never to shorten.
@@ -157,13 +210,29 @@ pub fn pick_server<'a>(
 /// Returns the reason the primary server could not be used or did not answer
 /// with a URL. A failure to mirror to a *secondary* server is not an error:
 /// the short URL the caller asked for already exists.
-pub fn shorten(url: &Url, config: &Config, server: Option<&str>) -> Result<String, ShortenError> {
+pub fn shorten(
+    url: &Url,
+    config: &Config,
+    server: Option<&str>,
+    id: Option<&str>,
+) -> Result<String, ShortenError> {
     let primary = pick_server(config, server)?;
+    if let Some(id) = id {
+        check_id(id)?;
+    }
     let agent = crate::common::get_agent(config.ignore_ssl_errors);
     let encoded: String = url::form_urlencoded::byte_serialize(url.as_str().as_bytes()).collect();
 
+    // `keyword` is what YOURLS calls a custom id. Encoded like any other
+    // value: an id is user input and may contain characters that are legal in
+    // a keyword but not in a query string.
+    let keyword = id.map_or_else(String::new, |id| {
+        let encoded: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+        format!("&keyword={encoded}")
+    });
+
     let endpoint = format!(
-        "{}?signature={}&action=shorturl&url={}&format=simple",
+        "{}?signature={}&action=shorturl&url={}{keyword}&format=simple",
         primary.api_url, primary.signature, encoded
     );
 
@@ -196,10 +265,35 @@ pub fn shorten(url: &Url, config: &Config, server: Option<&str>) -> Result<Strin
         .to_string();
 
     if !reply.starts_with("http://") && !reply.starts_with("https://") {
+        // `format=simple` has no way to report an error: it answers with the
+        // short URL or with nothing at all. The only thing that can fail once
+        // the request itself succeeded and an id was asked for is that id
+        // being taken, so say so rather than quoting an empty reply back.
+        if let Some(id) = id
+            && reply.is_empty()
+        {
+            return Err(ShortenError::IdTaken {
+                server: primary.name.clone(),
+                id: id.to_string(),
+            });
+        }
         return Err(ShortenError::NotAUrlInReply {
             server: primary.name.clone(),
             reply,
         });
+    }
+
+    // A 409 means the instance already had this URL, and it answers with the
+    // short URL it already has — ignoring the requested id. Reporting that as
+    // success would quietly hand back a different id than the one asked for.
+    if let Some(requested) = id {
+        let got = slug_of(&reply);
+        if got != requested {
+            return Err(ShortenError::IdNotUsed {
+                requested: requested.to_string(),
+                got: got.to_string(),
+            });
+        }
     }
 
     if config.shorten_on_all {
@@ -219,11 +313,7 @@ fn mirror(
     config: &Config,
     agent: &ureq::Agent,
 ) {
-    let slug = short_url
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .unwrap_or("");
+    let slug = slug_of(short_url);
     if slug.is_empty() {
         return;
     }
@@ -358,6 +448,25 @@ mod tests {
         assert!(!redacted.contains("deadbeef1234"), "{redacted}");
         assert!(redacted.contains("signature=<redacted>"), "{redacted}");
         assert!(redacted.contains("action=shorturl"), "{redacted}");
+    }
+
+    #[test]
+    fn an_id_is_taken_from_the_end_of_a_short_url() {
+        assert_eq!(slug_of("https://example.com/abc"), "abc");
+        assert_eq!(slug_of("https://example.com/abc/"), "abc");
+        assert_eq!(slug_of(""), "");
+    }
+
+    #[test]
+    fn an_id_that_could_not_work_is_refused() {
+        for bad in ["", "two words", "a/b", "a?b", "a&b", "a#b"] {
+            assert!(check_id(bad).is_err(), "`{bad}` should be refused");
+        }
+        // Left to the instance to accept or not: which characters are allowed
+        // in a keyword is its own configuration.
+        for ok in ["abc", "a-b_c", "CamelCase", "123", "ümlaut"] {
+            assert!(check_id(ok).is_ok(), "`{ok}` should be left to the server");
+        }
     }
 
     #[test]
