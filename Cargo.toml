@@ -74,10 +74,10 @@ serde_json = { version = "1.0", optional = true }
 single-instance = { version = "0.3", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-# Win32_System_Console and Win32_Storage_FileSystem are for the console
-# reattach in main.rs, which is what makes the CLI usable from a shell in a
-# tray-enabled (windows-subsystem) build.
-windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_Globalization", "Win32_System_Console", "Win32_Storage_FileSystem"] }
+# Win32_System_Console is for the console reattach in main.rs, which is what
+# makes the CLI usable from a shell in a tray-enabled (windows-subsystem)
+# build.
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_Globalization", "Win32_System_Console"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", optional = true }

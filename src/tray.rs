@@ -26,6 +26,9 @@
 )]
 
 use crate::common::{AppState, log_debug};
+#[cfg(target_os = "windows")]
+use std::thread;
+
 use crate::config::{self, load_config};
 use crate::i18n;
 use std::sync::{Arc, Mutex};

@@ -27,6 +27,14 @@
     clippy::items_after_statements
 )]
 
+// Windows-only, and lost once already: an #![allow] block added at the top of
+// this file took these with it, which nothing on Linux could notice because
+// every user of them is behind cfg(windows).
+#[cfg(target_os = "windows")]
+use arboard::Clipboard;
+#[cfg(target_os = "windows")]
+use clipboard_master::{CallbackResult, ClipboardHandler, Master};
+
 use crate::api::fetch_history;
 use crate::common::{AppState, is_scroll_lock_active, log_debug};
 use crate::i18n;

@@ -62,10 +62,7 @@ use tray_icon::TrayIconBuilder;
 /// down real handles, and the first branch below leaves them alone.
 #[cfg(all(target_os = "windows", feature = "tray"))]
 mod console {
-    use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-    };
+    use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::System::Console::{
         ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
         STD_OUTPUT_HANDLE, SetStdHandle,
@@ -76,71 +73,47 @@ mod console {
     /// Silent by design: every failure here means "there is no console to
     /// write to", which is not an error — the output is redirected, or the
     /// program was double-clicked.
-    // Every call is a Win32 call, so there is no safe formulation. Each one is
-    // a handle query or assignment with no memory involved beyond the
-    // null-terminated literals below.
-    #[allow(unsafe_code)]
     pub fn attach_to_parent() {
-        unsafe {
-            // A valid handle already means output is redirected to a file or a
-            // pipe, and hijacking it would send the result somewhere the user
-            // did not ask for.
-            let existing = GetStdHandle(STD_OUTPUT_HANDLE);
-            if !existing.is_null() && existing != INVALID_HANDLE_VALUE {
-                return;
-            }
-            if AttachConsole(ATTACH_PARENT_PROCESS) == 0 {
-                return;
-            }
-            // CONOUT$/CONIN$ name the attached console regardless of what the
-            // standard handles currently point at.
-            const CONOUT: [u16; 8] = [
-                b'C' as u16,
-                b'O' as u16,
-                b'N' as u16,
-                b'O' as u16,
-                b'U' as u16,
-                b'T' as u16,
-                b'$' as u16,
-                0,
-            ];
-            const CONIN: [u16; 7] = [
-                b'C' as u16,
-                b'O' as u16,
-                b'N' as u16,
-                b'I' as u16,
-                b'N' as u16,
-                b'$' as u16,
-                0,
-            ];
+        // A valid handle already means output is redirected to a file or a
+        // pipe, and hijacking it would send the result somewhere the user did
+        // not ask for.
+        #[allow(unsafe_code)]
+        let existing = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+        if !existing.is_null() {
+            return;
+        }
+        #[allow(unsafe_code)]
+        let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+        if attached == 0 {
+            return;
+        }
 
-            let output = CreateFileW(
-                CONOUT.as_ptr(),
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL,
-                std::ptr::null_mut(),
-            );
-            if output != INVALID_HANDLE_VALUE {
-                SetStdHandle(STD_OUTPUT_HANDLE, output);
-                SetStdHandle(STD_ERROR_HANDLE, output);
-            }
+        // CONOUT$ and CONIN$ name the console just attached, whatever the
+        // standard handles currently point at. Opening them as ordinary files
+        // avoids a CreateFileW call and its argument list.
+        redirect("CONOUT$", &[STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]);
+        redirect("CONIN$", &[STD_INPUT_HANDLE]);
+    }
 
-            let input = CreateFileW(
-                CONIN.as_ptr(),
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL,
-                std::ptr::null_mut(),
-            );
-            if input != INVALID_HANDLE_VALUE {
-                SetStdHandle(STD_INPUT_HANDLE, input);
+    /// Points each of `handles` at `device`.
+    fn redirect(device: &str, handles: &[u32]) {
+        let Ok(file) = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(device)
+        else {
+            return;
+        };
+        let raw = file.as_raw_handle();
+        for handle in handles {
+            #[allow(unsafe_code)]
+            unsafe {
+                SetStdHandle(*handle, raw.cast());
             }
         }
+        // The handle now belongs to the process's standard handles, and
+        // dropping the File would close it out from under them.
+        std::mem::forget(file);
     }
 }
 
