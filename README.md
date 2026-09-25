@@ -77,7 +77,8 @@ curl -fsSL https://raw.githubusercontent.com/Bluscream/yourls-tray-app/main/scri
 | `--start-menu-shortcut` | an entry in the application menu |
 | `--desktop-shortcut` | a shortcut on the desktop |
 | `--autostart-tray` | starts the tray at login |
-| `--uninstall` | removes everything it installed |
+| `--uninstall` | removes everything it installed, keeping your config |
+| `--purge` | that, and the config as well |
 
 It works from a clone too (`./scripts/install.sh`), where it installs the
 local build instead of downloading one. Everything goes under `$HOME` — no
@@ -119,8 +120,8 @@ With options, which `iex` cannot pass on its own:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Bluscream/yourls-tray-app/main/scripts/install.ps1))) -StartMenuShortcut -AutostartTray
 ```
 
-`-StartMenuShortcut`, `-DesktopShortcut`, `-AutostartTray` and `-Uninstall`
-match the Linux options. Installs to `%LOCALAPPDATA%\Programs\yourls`, adds
+`-StartMenuShortcut`, `-DesktopShortcut`, `-AutostartTray`, `-Uninstall` and
+`-Purge` match the Linux options. Installs to `%LOCALAPPDATA%\Programs\yourls`, adds
 it to your `PATH`, and every shortcut passes `--tray`. No admin rights.
 
 ### First run

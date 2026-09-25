@@ -29,6 +29,9 @@
 
 .PARAMETER Uninstall
     Remove everything this script installed.
+
+.PARAMETER Purge
+    That, and the configuration as well.
 #>
 [CmdletBinding()]
 param(
@@ -36,7 +39,8 @@ param(
     [switch]$DesktopShortcut,
     [switch]$StartMenuShortcut,
     [string]$Binary,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$Purge
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +53,7 @@ $StartupDir = Join-Path $StartMenu 'Startup'
 $DesktopDir = [Environment]::GetFolderPath('Desktop')
 $LinkName   = 'YOURLS Shortener.lnk'
 $ExePath    = Join-Path $InstallDir 'yourls.exe'
+$ConfigDir  = Join-Path $env:USERPROFILE '.yourls-clipboard-shortener'
 
 function Stop-Unsupported([string]$Reason) {
     Write-Host ''
@@ -77,7 +82,7 @@ function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments) {
     $link.Save()
 }
 
-if ($Uninstall) {
+if ($Uninstall -or $Purge) {
     $removed = $false
     $paths = @(
         (Join-Path $StartMenu $LinkName),
@@ -103,8 +108,19 @@ if ($Uninstall) {
     }
 
     if (-not $removed) { Write-Host 'nothing was installed' }
+
     Write-Host ''
-    Write-Host 'Your configuration was left alone: %USERPROFILE%\.yourls-clipboard-shortener\'
+    if ($Purge) {
+        if (Test-Path $ConfigDir) {
+            Remove-Item $ConfigDir -Recurse -Force
+            Write-Host "removed $ConfigDir, including your server settings"
+        } else {
+            Write-Host "no configuration at $ConfigDir"
+        }
+    } else {
+        Write-Host "Your configuration was left alone: $ConfigDir"
+        Write-Host 'Use -Purge to remove that too.'
+    }
     return
 }
 

@@ -21,6 +21,7 @@ ICON_DIR="${YOURLS_ICON_DIR:-$HOME/.local/share/icons/hicolor/256x256/apps}"
 AUTOSTART_DIR="${YOURLS_AUTOSTART_DIR:-$HOME/.config/autostart}"
 DESKTOP_DIR="${YOURLS_DESKTOP_DIR:-$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")}"
 
+CONFIG_DIR="${YOURLS_CONFIG_DIR:-$HOME/.yourls-clipboard-shortener}"
 DESKTOP_NAME=yourls.desktop
 AUTOSTART_TRAY=0
 DESKTOP_SHORTCUT=0
@@ -37,6 +38,7 @@ Usage: install.sh [options]
   --start-menu-shortcut   put an entry in the application menu
   --binary <path>         install this binary instead of downloading one
   --uninstall             remove everything this script installed
+  --purge                 that, and the configuration as well
 
 With no options the binary is installed on its own. All three shortcut
 options run `yourls --tray`: without that argument the shortcut would run a
@@ -69,7 +71,9 @@ EOF
     exit 1
 }
 
+# `purge` is passed as the first argument to also remove the configuration.
 uninstall() {
+    local purge="${1:-no}"
     local removed=0
     for path in "$BIN_DIR/yourls" "$BIN_DIR/yourls-cli" \
                 "$APP_DIR/$DESKTOP_NAME" "$AUTOSTART_DIR/$DESKTOP_NAME" \
@@ -86,8 +90,19 @@ uninstall() {
         command -v update-desktop-database >/dev/null 2>&1 && \
             update-desktop-database "$APP_DIR" 2>/dev/null || true
     fi
+
     say
-    say "Your configuration was left alone: ~/.yourls-clipboard-shortener/"
+    if [[ "$purge" == "purge" ]]; then
+        if [[ -d "$CONFIG_DIR" ]]; then
+            rm -rf "$CONFIG_DIR"
+            say "removed $CONFIG_DIR, including your server settings"
+        else
+            say "no configuration at $CONFIG_DIR"
+        fi
+    else
+        say "Your configuration was left alone: $CONFIG_DIR"
+        say "Use --purge to remove that too."
+    fi
     exit 0
 }
 
@@ -98,6 +113,7 @@ while [[ $# -gt 0 ]]; do
         --start-menu-shortcut) START_MENU_SHORTCUT=1 ;;
         --binary) shift; SOURCE="${1:-}" ;;
         --uninstall) uninstall ;;
+        --purge) uninstall purge ;;
         -h|--help) usage; exit 0 ;;
         *) printf 'unknown option: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
