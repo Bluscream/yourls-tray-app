@@ -144,9 +144,20 @@ cargo build --release
 # Windows (x86)
 cargo build --release --target i686-pc-windows-msvc
 
-# Linux (via WSL Alpine, statically linked)
-cargo build --release
+# Linux
+./scripts/build.sh          # fmt + clippy + tests + release build
+./scripts/appimage.sh       # portable AppImage into dist/
 ```
+
+`scripts/build.sh` is the gate; check its exit status directly rather than
+piping it into `grep`, which reports grep's status and lets a failing build
+through.
+
+`scripts/appimage.sh` compiles inside Ubuntu 20.04 (glibc 2.31) so the result
+runs on anything newer, and bundles the GTK/tray stack with linuxdeploy. Do
+not build Linux release artifacts on Alpine: a dynamically linked musl binary
+cannot start on a glibc desktop, which is what made every AppImage up to
+v1.0.5 unrunnable.
 
 For a full automated build + release (Windows + Linux + AppImage + GitHub release):
 ```powershell

@@ -1,73 +1,56 @@
 #!/bin/sh
+# The Linux half of the release, run inside WSL by tools/update.ps1.
+#
+# This used to build on Alpine and hand-roll an AppDir. Both were wrong, and
+# every Linux asset released that way was unrunnable on an ordinary desktop:
+#
+#   * Alpine plus `-C target-feature=-crt-static` yields a dynamically linked
+#     *musl* binary, which needs libc.musl-x86_64.so.1 — a file no glibc
+#     distribution has. It failed with "required file not found" before
+#     reaching main().
+#   * The AppDir got the binary, the icon, a .desktop file and AppRun, and no
+#     libraries whatsoever, so it also referenced Alpine's libxdo.so.4 while
+#     Debian and Fedora still ship libxdo.so.3.
+#
+# So the build now happens on a glibc distribution and the bundling is left to
+# scripts/appimage.sh, which uses linuxdeploy and verifies the result. Run this
+# from a Debian/Ubuntu WSL distro, not Alpine.
 set -e
 
-WSL_REPO="/root/yourls-tray-app"
+REPO="${WSL_REPO:-$HOME/yourls-tray-app}"
+cd "$REPO"
 
-echo "=== WSL: Initializing dependencies ==="
-
-apk add build-base pkgconfig gtk+3.0-dev libayatana-appindicator-dev xdotool-dev rustup gcompat curl tar xz
-
-# Setup rustup natively
-if [ ! -f /root/.cargo/bin/rustc ]; then
-  rm -rf /root/.rustup /root/.cargo
-  rustup-init -y --default-toolchain stable --profile minimal
+if ldd --version 2>&1 | grep -qi musl; then
+    echo "refusing to build on musl: the result cannot run on a glibc desktop." >&2
+    echo "Use a Debian or Ubuntu WSL distro (see WslDistroX64 in tools/update.ps1)." >&2
+    exit 1
 fi
 
-# Always source the cargo env to make cargo available
+echo "=== installing build dependencies ==="
+sudo apt-get update -qq
+# The tray pulls in GTK 3 and libayatana-appindicator; enigo links -lxdo.
+sudo apt-get install -y -qq --no-install-recommends \
+    build-essential pkg-config curl ca-certificates perl make file \
+    libgtk-3-dev libayatana-appindicator3-dev libxdo-dev \
+    libx11-dev libxext-dev
+
+if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable
+fi
 . "$HOME/.cargo/env"
 export PATH="$HOME/.cargo/bin:$PATH"
 
-export PKG_CONFIG_ALLOW_CROSS=0
+# A stale cross-compilation config makes pkg-config look in the wrong sysroot.
+rm -f "$REPO/.cargo/config.toml"
 
-# Remove stale cross-compilation cargo config if present
-rm -f "$WSL_REPO/.cargo/config.toml"
+echo "=== compiling ($(uname -m)) ==="
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-5}" cargo build --release --bin yourls
 
-ARCH="$(uname -m)"
-
-echo "=== WSL: Compiling native binary ($ARCH) ==="
-cd "$WSL_REPO"
-RUSTFLAGS="-C target-feature=-crt-static" CARGO_BUILD_JOBS=5 cargo build --release
-
-# Package AppImage
-echo "=== WSL: Packaging $ARCH AppImage ==="
-APPDIR="$WSL_REPO/AppDir-$ARCH"
-APPIMAGE_OUT="$WSL_REPO/yourls-tray-app-$ARCH.AppImage"
-APPTOOL="appimagetool-$ARCH.AppImage"
-
-mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
-cp "$WSL_REPO/target/release/yourls-tray-app" "$APPDIR/usr/bin/yourls-tray-app"
-cp "$WSL_REPO/src/icon.png" "$APPDIR/yourls-tray-app.png"
-cp "$WSL_REPO/src/icon.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/yourls-tray-app.png"
-
-cat << 'DESKTOP' > "$APPDIR/yourls-tray-app.desktop"
-[Desktop Entry]
-Name=YOURLS Shortener
-Exec=yourls-tray-app
-Icon=yourls-tray-app
-Type=Application
-Categories=Utility;
-Terminal=false
-Comment=Shorten links from clipboard automatically
-DESKTOP
-
-cat << 'APPRUN' > "$APPDIR/AppRun"
-#!/bin/sh
-SELF=$(readlink -f "$0")
-HERE=$(dirname "$SELF")
-exec "$HERE/usr/bin/yourls-tray-app" "$@"
-APPRUN
-chmod +x "$APPDIR/AppRun"
-
-if [ ! -f "$WSL_REPO/$APPTOOL" ]; then
-  curl -L -o "$WSL_REPO/$APPTOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/$APPTOOL"
-  chmod +x "$WSL_REPO/$APPTOOL"
-fi
-
-SQUASH_DIR="$WSL_REPO/squashfs-root-$ARCH"
-if [ ! -d "$SQUASH_DIR" ]; then
-  cd "$WSL_REPO"
-  "./$APPTOOL" --appimage-extract
-  mv squashfs-root "$SQUASH_DIR"
-fi
-
-ARCH="$ARCH" "$SQUASH_DIR/AppRun" "$APPDIR" "$APPIMAGE_OUT"
+echo "=== packaging the AppImage ==="
+# The binary is already built for this glibc, so packaging only — appimage.sh
+# would otherwise start a container of its own, which WSL cannot nest.
+YOURLS_SKIP_BUILD=1 \
+YOURLS_BIN_DIR="$REPO/target/release" \
+YOURLS_OUT_DIR="$REPO/dist" \
+    ./scripts/appimage.sh --skip-build

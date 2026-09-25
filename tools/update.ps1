@@ -10,7 +10,9 @@ $ErrorActionPreference = "Stop"
 # ─────────────────────────────────────────────────────────────────────────────
 
 $Repo         = "Bluscream/yourls-tray-app"
-$WslDistroX64 = "Alpine"
+# A glibc distribution on purpose. Alpine produced dynamically linked musl
+# binaries that could not start on any ordinary desktop; see tools/update.sh.
+$WslDistroX64 = "Debian"
 $WslRepo      = "~/yourls-tray-app"
 $HostTarget   = "target\release"
 $WslTarget    = "/mnt/d/Projects/Visual Studio/source/repos/target/release"
@@ -95,30 +97,6 @@ sudo pacman -S wl-clipboard xdotool
     return $notes.Replace('{TAG}', $Tag).Replace('{TOTAL_SHIELD}', $totalShield).Replace('{CHANGELOG}', $ChangeLog).Replace('{ASSET_LINES}', $assetLinesJoined)
 }
 
-function Build-AppImage([string]$AppDir, [string]$BinarySrc, [string]$OutputFile, [string]$ToolArch) {
-    $tool   = "appimagetool-${ToolArch}.AppImage"
-    $sqroot = "squashfs-root-${ToolArch}"
-
-    # Build the shell script using string replacement to avoid any parser errors with $ escaping in double quotes
-    $scriptTemplate = @'
-cd {WSL_REPO}
-mkdir -p {APP_DIR}/usr/bin {APP_DIR}/usr/share/icons/hicolor/256x256/apps
-cp {BINARY_SRC} {APP_DIR}/usr/bin/yourls-tray-app
-cp src/icon.png {APP_DIR}/yourls-tray-app.png
-cp src/icon.png {APP_DIR}/usr/share/icons/hicolor/256x256/apps/yourls-tray-app.png
-printf '[Desktop Entry]\nName=YOURLS Shortener\nExec=yourls-tray-app\nIcon=yourls-tray-app\nType=Application\nCategories=Utility;\nTerminal=false\nComment=Shorten links from clipboard automatically\n' > {APP_DIR}/yourls-tray-app.desktop
-printf '#!/bin/sh\nSELF=$(readlink -f "$0")\nHERE=$(dirname "$SELF")\nexec "$HERE/usr/bin/yourls-tray-app" "$@"\n' > {APP_DIR}/AppRun
-chmod +x {APP_DIR}/AppRun
-if [ ! -f {TOOL} ]; then curl -L -o {TOOL} https://github.com/AppImage/appimagetool/releases/download/continuous/{TOOL} && chmod +x {TOOL}; fi
-if [ ! -d {SQROOT} ]; then ./{TOOL} --appimage-extract && mv squashfs-root {SQROOT}; fi
-ARCH={ARCH_VAR} ./{SQROOT}/AppRun {APP_DIR} {OUTPUT_FILE}
-'@
-
-    $sh = $scriptTemplate.Replace('{WSL_REPO}', $WslRepo).Replace('{APP_DIR}', $AppDir).Replace('{BINARY_SRC}', $BinarySrc).Replace('{TOOL}', $tool).Replace('{SQROOT}', $sqroot).Replace('{OUTPUT_FILE}', $OutputFile).Replace('{ARCH_VAR}', $ToolArch)
-
-    wsl -d $WslDistro sh -c $sh.Replace("`r`n", "`n")
-}
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Resolve version
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,6 +160,10 @@ InvokeWsl "mkdir -p $WslRepo"
 InvokeWsl "rm -rf $WslRepo/src"
 InvokeWsl "cp -r '$WslSrc/Cargo.toml' '$WslSrc/Cargo.lock' '$WslSrc/src' $WslRepo/"
 InvokeWsl "cp '$WslSrc/tools/update.sh' $WslRepo/update.sh && chmod +x $WslRepo/update.sh"
+# update.sh delegates the bundling to scripts/appimage.sh, so that has to be
+# there too.
+InvokeWsl "rm -rf $WslRepo/scripts"
+InvokeWsl "cp -r '$WslSrc/scripts' $WslRepo/ && chmod +x $WslRepo/scripts/*.sh"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Execute compile & packaging steps via update.sh inside WSL
@@ -196,8 +178,8 @@ InvokeWsl "cd $WslRepo && ./update.sh"
 
 Step "Copying compiled Linux binaries back to host..."
 New-Item -ItemType Directory -Force -Path $HostTarget | Out-Null
-InvokeWsl "cp ~/yourls-tray-app/target/release/yourls-tray-app              '$WslTarget/yourls-tray-app_lin64-release'"
-InvokeWsl "cp ~/yourls-tray-app/yourls-tray-app-x86_64.AppImage             '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
+InvokeWsl "cp ~/yourls-tray-app/target/release/yourls                       '$WslTarget/yourls-tray-app_lin64-release'"
+InvokeWsl "cp ~/yourls-tray-app/dist/yourls-*-x86_64.AppImage               '$WslTarget/yourls-tray-app_lin64-release.AppImage'"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. Rename Windows binaries
