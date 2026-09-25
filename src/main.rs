@@ -391,6 +391,18 @@ fn run_shorten(
 
     let url = shorten::parse_url(&input)?;
     let config = load_config();
+
+    // A blacklisted URL is not a failure: the user asked for this one to be
+    // left alone. Printing it back unchanged keeps `yourls "$url"` usable in a
+    // pipe or as an editor filter, where an error would lose the URL
+    // altogether. The reason goes to stderr so it is visible but not part of
+    // the output.
+    if shorten::is_blacklisted(&url, &config)? {
+        eprintln!("yourls: {url} matches blacklist_regex; left unchanged");
+        println!("{url}");
+        return Ok(());
+    }
+
     let short = shorten::shorten(&url, &config, server)?;
     println!("{short}");
     Ok(())

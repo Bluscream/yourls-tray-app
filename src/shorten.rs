@@ -15,17 +15,31 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug)]
 pub enum ShortenError {
     NotAUrl(String),
+    /// The configured `blacklist_regex` is not a valid regular expression.
+    BadBlacklist(String),
     NoServers,
     UnknownServer(String),
     IncompleteServer(String),
-    Request { server: String, detail: String },
-    NotAUrlInReply { server: String, reply: String },
+    Request {
+        server: String,
+        detail: String,
+    },
+    NotAUrlInReply {
+        server: String,
+        reply: String,
+    },
 }
 
 impl std::fmt::Display for ShortenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotAUrl(text) => write!(f, "not a URL: {text}"),
+            Self::BadBlacklist(detail) => {
+                write!(
+                    f,
+                    "blacklist_regex is not a valid regular expression: {detail}"
+                )
+            }
             Self::NoServers => write!(
                 f,
                 "no YOURLS server is configured; add one to {}",
@@ -67,6 +81,27 @@ pub fn parse_url(text: &str) -> Result<Url, ShortenError> {
         return Err(ShortenError::NotAUrl(text.to_string()));
     }
     Ok(url)
+}
+
+/// Whether `url` is one the user asked never to shorten.
+///
+/// An empty `blacklist_regex` — the default — blacklists nothing. The pattern
+/// is matched against the whole URL as written.
+///
+/// # Errors
+///
+/// Returns [`ShortenError::BadBlacklist`] if the pattern does not compile.
+/// Refusing loudly is deliberate: treating an unparseable blacklist as "allow
+/// everything" would quietly shorten exactly the links it was written to
+/// protect.
+pub fn is_blacklisted(url: &Url, config: &Config) -> Result<bool, ShortenError> {
+    let pattern = config.blacklist_regex.trim();
+    if pattern.is_empty() {
+        return Ok(false);
+    }
+    let regex =
+        regex::Regex::new(pattern).map_err(|e| ShortenError::BadBlacklist(e.to_string()))?;
+    Ok(regex.is_match(url.as_str()))
 }
 
 /// The name that means "whatever the config says".
@@ -277,6 +312,50 @@ mod tests {
                 "{wanted:?} should follow the config"
             );
         }
+    }
+
+    #[test]
+    fn a_blacklisted_url_is_recognised() {
+        let config = Config {
+            // The rule this was written for: Discord user links are already
+            // short and shortening them breaks the client's preview.
+            blacklist_regex: r"^https://discord\.com/users/\d{17,20}$".to_string(),
+            ..Config::default()
+        };
+        let blacklisted = parse_url("https://discord.com/users/123456789012345678").expect("url");
+        assert!(is_blacklisted(&blacklisted, &config).expect("valid pattern"));
+
+        for allowed in [
+            "https://discord.com/users/notanid",
+            "https://example.com/users/123456789012345678",
+            "https://discord.com/channels/1/2",
+        ] {
+            let url = parse_url(allowed).expect("url");
+            assert!(
+                !is_blacklisted(&url, &config).expect("valid pattern"),
+                "{allowed} should not be blacklisted"
+            );
+        }
+    }
+
+    #[test]
+    fn no_blacklist_blocks_nothing() {
+        let config = Config::default();
+        let url = parse_url("https://example.com").expect("url");
+        assert!(!is_blacklisted(&url, &config).expect("empty is valid"));
+    }
+
+    #[test]
+    fn an_unparseable_blacklist_is_an_error_rather_than_allow_everything() {
+        let config = Config {
+            blacklist_regex: "([unclosed".to_string(),
+            ..Config::default()
+        };
+        let url = parse_url("https://example.com").expect("url");
+        assert!(matches!(
+            is_blacklisted(&url, &config),
+            Err(ShortenError::BadBlacklist(_))
+        ));
     }
 
     #[test]

@@ -175,6 +175,20 @@ pub fn process_clipboard_text(
         return None;
     }
 
+    // A URL the user asked never to shorten is left in the clipboard exactly
+    // as it was found.
+    match crate::shorten::is_blacklisted(&parsed_url, &config) {
+        Ok(true) => {
+            log_debug(&format!("{text} matches blacklist_regex; leaving it alone"));
+            return None;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            log_debug(&format!("{e}; refusing to shorten anything"));
+            return None;
+        }
+    }
+
     {
         let mut s = state_clone.lock().unwrap();
         s.last_attempted_long_url = Some(text.clone());
